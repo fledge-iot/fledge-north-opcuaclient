@@ -1,21 +1,39 @@
 # -*- coding: utf-8 -*-
 
+# FLEDGE_BEGIN
+# See: http://fledge.readthedocs.io/
+# FLEDGE_END
+
+
+# ***********************************************************************
+# * DISCLAIMER:
+# *
+# * All sample code is provided by ACDP for illustrative purposes only.
+# * These examples have not been thoroughly tested under all conditions.
+# * ACDP provides no guarantee nor implies any reliability,
+# * serviceability, or function of these programs.
+# * ALL PROGRAMS CONTAINED HEREIN ARE PROVIDED TO YOU "AS IS"
+# * WITHOUT ANY WARRANTIES OF ANY KIND. ALL WARRANTIES INCLUDING
+# * THE IMPLIED WARRANTIES OF NON-INFRINGEMENT, MERCHANTABILITY
+# * AND FITNESS FOR A PARTICULAR PURPOSE ARE EXPRESSLY DISCLAIMED.
+# ************************************************************************
+
+
 """ OpcuaClient North plugin"""
 import asyncio
 import time
 import json
 import sys
 
-# Using the Python OpcuaClient Device SDK for IoT Hub:
+# Using the Python OpcuaClient
 # https://github.com/OpcuaClient/opcuaclient-iot-sdk-python
-from opcuaclient.iot.device.aio import IoTHubDeviceClient
-from opcuaclient.iot.device import Message, MethodResponse
+from asyncua import Client
 
 from fledge.common import logger
 from fledge.plugins.north.common.common import *
 
 __author__ = "Sebastian Kropatschek"
-__copyright__ = "Copyright (c) 2020 Kapsch & Austrian Center for Digital Production (ACDP)"
+__copyright__ = "Copyright (c) 2021 Austrian Center for Digital Production (ACDP)"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
@@ -26,24 +44,28 @@ _CONFIG_CATEGORY_DESCRIPTION = "OpcuaClient Python North Plugin"
 
 _DEFAULT_CONFIG = {
     'plugin': {
-         'description': 'OpcuaClient North Plugin',
+         'description': 'Opcua Client North Plugin',
          'type': 'string',
          'default': 'opcuaclient',
          'readonly': 'true'
     },
-    'primary_connection_string': {
-        'description': 'Connection string based on primary key used in API calls which allows device to communicate with OpcuaClient IoT Hub',
+    'url': {
+        'description': ' OPCUA Server URL',
         'type': 'string',
-        'default': 'HostName=<Host Name>;DeviceId=<Device Name>;SharedAccessKey=<Device Key>',
+        'default': 'opc.tcp://mark.local:53530/OPCUA/SimulationServer',
         'order': '1',
         'displayName': 'Primary Connection String'
     },
-    "websockets": {
-        "description": "Set to true if using MQTT over websockets",
-        "type": "boolean",
-        "default": "false",
+    'map': {
+        'description': 'map',
+        'type': 'JSON',
+        'default': json.dumps({
+            "sinusoid": {
+                "sinusoid": {"node": "", "type": ""},
+            }
+        }),
         'order': '2',
-        'displayName': 'MQTT over websockets'
+        'displayName': 'Register Map'
     },
     "source": {
          "description": "Source of data to be sent on the stream. May be either readings or statistics.",
@@ -84,7 +106,7 @@ def plugin_init(data):
     global opcuaclient_north, config
     opcuaclient_north = OpcuaClientNorthPlugin()
     config = data
-    _LOGGER.info(f'Initializing plugin with Primary Connection String: {config["primary_connection_string"]["value"]}')
+    _LOGGER.info(f'Initializing plugin with Primary Connection String: {config["url"]["value"]}')
     return config
 
 async def plugin_send(data, payload, stream_id):
@@ -105,7 +127,7 @@ def plugin_reconfigure():
     pass
 
 class OpcuaClientNorthPlugin(object):
-    """ North OpcuaClient Plugin """
+    """ North Opcua Client Plugin """
 
     def __init__(self):
         self.event_loop = asyncio.get_event_loop()
@@ -117,9 +139,7 @@ class OpcuaClientNorthPlugin(object):
         is_data_sent = False
         last_object_id = 0
         num_sent = 0
-        
-        MESSAGE_SIZE_LIMIT = 262144 # Limit form the OpcuaClient IoT Hub 
-        
+
         size_payload_block = 0
 
         try:
@@ -131,16 +151,10 @@ class OpcuaClientNorthPlugin(object):
                 read["asset"] = p['asset_code']
                 read["readings"] = p['reading']
                 read["timestamp"] = p['user_ts']
-                
-                size_payload_block += sys.getsizeof(json.dumps(read, separators=(',', ':')).encode('utf-8'))
-                if size_payload_block > MESSAGE_SIZE_LIMIT * 0.9: 
-                    # less than 90% of the maximum value is a quick solution to catch the not yet calculated overhead of the message class. Will be improved in a future version
-                    _LOGGER.info("The size of the message is larger than 256 kB! The remaining payloads will be sent on the next function call")
-                    break
-                
+
                 last_object_id = p["id"]
                 payload_block.append(read)
-                
+
             num_sent = await self._send_payloads(payload_block)
             _LOGGER.info('payloads sent: {num_sent}')
             is_data_sent = True
@@ -151,35 +165,45 @@ class OpcuaClientNorthPlugin(object):
 
     async def _send_payloads(self, payload_block):
         """ send a list of block payloads"""
-        
+
         num_count = 0
         try:
-            device_client = IoTHubDeviceClient.create_from_connection_string(config["primary_connection_string"]["value"], websockets = config["websockets"]["value"])
-            _LOGGER.info(f'Using Primary Connection String: {config["primary_connection_string"]["value"]} and MQTT over websockets: {config["websockets"]["value"]}')
-            
+            #device_client = IoTHubDeviceClient.create_from_url(config["url"]["value"], websockets = config["websockets"]["value"])
+            #_LOGGER.info(f'Using Primary Connection String: {config["url"]["value"]} and MQTT over websockets: {config["websockets"]["value"]}')
+
             # Connect the device client.
-            await device_client.connect()
-            
-            await self._send(device_client, payload_block)
-            
+            #await device_client.connect()
+
+            #async with Client(url=url) as client:
+                    # Client has a few methods to get proxy to UA nodes that should always be in address space such as Root or Objects
+                    # Node objects have methods to read and write node attributes as well as browse or populate address space
+                    #_logger.info('Children of root are: %r', await client.nodes.root.get_children())
+
+                    #uri = 'http://examples.freeopcua.github.io'
+                    #idx = await client.get_namespace_index(uri)
+                    # get a specific node knowing its node id
+                    # var = client.get_node(ua.NodeId(1002, 2))
+                    #var = client.get_node("ns=3;i=2002")
+                    #print("My variable", var, await var.read_value())
+                    # print(var)
+                    # await var.read_data_value() # get value of node as a DataValue object
+                    # await var.read_value() # get value of node as a python builtin
+                    #await var.write_value(ua.Variant([23], ua.VariantType.Int64)) #set node value using explicit data type
+                    # await var.write_value(3.9) # set node value using implicit data type
+
+
             # finally, disconnect
-            await device_client.disconnect()
+            #await device_client.disconnect()
 
         except Exception as ex:
             _LOGGER.exception(f'Exception sending payloads: {ex}')
         else:
             num_count += len(payload_block)
+
         return num_count
 
     async def _send(self, client, payload):
         """ Send the payload, using provided client """
-       
-        message = Message(json.dumps(payload, separators = (',', ':')).encode('utf-8'))
-        message.content_encoding = "utf-8"
-        message.content_type = "application/json"
-        size = str(message.get_size())
 
-        _LOGGER.info("Sending message: {}".format(message))
-        _LOGGER.info("Message Size: {}".format(size))
         await client.send_message(message)
         _LOGGER.info('Message successfully sent')
