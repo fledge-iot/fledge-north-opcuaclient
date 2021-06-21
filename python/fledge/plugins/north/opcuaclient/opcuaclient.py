@@ -27,7 +27,9 @@ import sys
 
 # Using the Python OpcuaClient
 # https://github.com/OpcuaClient/opcuaclient-iot-sdk-python
-from asyncua import Client
+# python min requirment python 3.7
+#from asyncua import Client
+from opcua import Client
 
 from fledge.common import logger
 from fledge.plugins.north.common.common import *
