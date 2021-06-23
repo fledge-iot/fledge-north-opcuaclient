@@ -29,8 +29,7 @@ import sys
 # https://github.com/OpcuaClient/opcuaclient-iot-sdk-python
 # python min requirment python 3.7
 #from asyncua import Client
-from opcua import Client
-
+from asyncua import Client, Node, ua
 from fledge.common import logger
 from fledge.plugins.north.common.common import *
 
@@ -144,7 +143,7 @@ class OpcuaClientNorthPlugin(object):
 
         size_payload_block = 0
 
-        map = json.loads(handle['map']['value'])
+        map = json.loads(config['map']['value'])
 
         try:
             _LOGGER.info('processing payloads')
@@ -158,13 +157,12 @@ class OpcuaClientNorthPlugin(object):
                         if not (item.get('node') is None) and not (item.get('type') is None):
                             if datapoint in p['reading']:
                                 read = dict()
-                                read["value"] = p['reading']['datapoint']
+                                read["value"] = p['reading'][datapoint]
                                 read["type"] = item.get('type')
                                 read["node"] = item.get('node')
                                 read["timestamp"] = p['user_ts']
                                 await self._send_payloads(read)
             num_sent+=1
-        else:
             _LOGGER.info('payloads sent: {num_sent}')
             is_data_sent = True
         except Exception as ex:
@@ -184,10 +182,10 @@ class OpcuaClientNorthPlugin(object):
 
             var = client.get_node(payload_block["node"])
 
-            print("My variable", var, await var.read_value())
+            _LOGGER.warn("My variable before write %s %s", str(var), str(await var.read_value()))
             #await var.write_value(ua.DataValue(value_to_variant(value, payload_block["type"]), SourceTimestamp=datetime.utcnow()))
             await var.write_value(value_to_variant(value, payload_block["type"])) #set node value using explicit data type
-            print("My variable", var, await var.read_value())
+            _LOGGER.warn("My variable after write %s %s", str(var), str(await var.read_value()))
 
 
 
