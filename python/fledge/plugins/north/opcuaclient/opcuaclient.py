@@ -63,7 +63,7 @@ _DEFAULT_CONFIG = {
         'type': 'JSON',
         'default': json.dumps({
             "sinusoid": {
-                "sinusoid": {"node": "", "type": ""},
+                "sinusoid": {"node": "ns=1;i=51031", "type": "Double"},
             }
         }),
         'order': '2',
@@ -144,20 +144,27 @@ class OpcuaClientNorthPlugin(object):
 
         size_payload_block = 0
 
+        map = json.loads(handle['map']['value'])
+
         try:
             _LOGGER.info('processing payloads')
             payload_block = list()
 
             for p in payloads:
-                read = dict()
-                read["asset"] = p['asset_code']
-                read["readings"] = p['reading']
-                read["timestamp"] = p['user_ts']
-
                 last_object_id = p["id"]
-                payload_block.append(read)
 
-            num_sent = await self._send_payloads(payload_block)
+                if p['asset_code'] in map:
+                    for datapoint, item in map[p['asset_code']].items():
+                        if not (item.get('node') is None) and not (item.get('type') is None):
+                            if datapoint in p['reading']:
+                                read = dict()
+                                read["value"] = p['reading']['datapoint']
+                                read["type"] = item.get('type')
+                                read["node"] = item.get('node')
+                                read["timestamp"] = p['user_ts']
+                                await self._send_payloads(read)
+            num_sent+=1
+        else:
             _LOGGER.info('payloads sent: {num_sent}')
             is_data_sent = True
         except Exception as ex:
@@ -175,30 +182,19 @@ class OpcuaClientNorthPlugin(object):
         try:
             client.connect()
 
-            # Client has a few methods to get proxy to UA nodes that should always be in address space such as Root or Objects
-            #root = client.get_root_node()
-            #print("Objects node is: ", root)
+            var = client.get_node(payload_block["node"])
 
-            # Node objects have methods to read and write node attributes as well as browse or populate address space
-            #print("Children of root are: ", root.get_children())
+            print("My variable", var, await var.read_value())
+            #await var.write_value(ua.DataValue(value_to_variant(value, payload_block["type"]), SourceTimestamp=datetime.utcnow()))
+            await var.write_value(value_to_variant(value, payload_block["type"])) #set node value using explicit data type
+            print("My variable", var, await var.read_value())
 
-            # get a specific node knowing its node id
-            #var = client.get_node(ua.NodeId(1002, 2))
-            #var = client.get_node("ns=3;i=2002")
-            #print(var)
-            #var.get_data_value() # get value of node as a DataValue object
-            #var.get_value() # get value of node as a python builtin
-            #var.set_value(ua.Variant([23], ua.VariantType.Int64)) #set node value using explicit data type
-            #var.set_value(3.9) # set node value using implicit data type
 
-            # Now getting a variable node using its browse path
-            #myvar = root.get_child(["0:Objects", "2:MyObject", "2:MyVariable"])
-            #obj = root.get_child(["0:Objects", "2:MyObject"])
-            #print("myvar is: ", myvar)
-            #print("myobj is: ", obj)
 
-            # Stacked myvar access
-            # print("myvar is: ", root.get_children()[0].get_children()[1].get_variables()[0].get_value())
+
+
+
+
 
         except Exception as ex:
             _LOGGER.exception(f'Exception sending payloads: {ex}')
@@ -214,3 +210,72 @@ class OpcuaClientNorthPlugin(object):
 
         await client.send_message(message)
         _LOGGER.info('Message successfully sent')
+
+    def _value_to_variant(value, type_):
+        type_ = type_.strip().lower()
+
+        if type_ == "bool":
+            return _value_to_variant_type(value, _bool, ua.VariantType.Boolean)
+        elif type_ == "sbyte":
+            return _value_to_variant_type(value, int, ua.VariantType.SByte)
+        elif type_ == "byte":
+            return _value_to_variant_type(value, int, ua.VariantType.Byte)
+        elif type_ == "uint16":
+            return _value_to_variant_type(value, int, ua.VariantType.UInt16)
+        elif type_ == "uint32":
+            return _value_to_variant_type(value, int, ua.VariantType.UInt32)
+        elif type_ == "uint64":
+            return _value_to_variant_type(value, int, ua.VariantType.UInt64)
+        elif type_ == "int16":
+            return _value_to_variant_type(value, int, ua.VariantType.Int16)
+        elif type_ == "int32":
+            return _value_to_variant_type(value, int, ua.VariantType.Int32)
+        elif type_ == "int64":
+            return _value_to_variant_type(value, int, ua.VariantType.Int64)
+        elif type_ == "float":
+            return _value_to_variant_type(value, float, ua.VariantType.Float)
+        elif type_ == "double":
+            return _value_to_variant_type(value, float, ua.VariantType.Double)
+        elif type_ == "string":
+            return _value_to_variant_type(value, str, ua.VariantType.String)
+        #elif type_ == "datetime":
+        #    raise NotImplementedError
+        #elif type_ == "Guid":
+        #    return _value_to_variant_type(value, bytes, ua.VariantType.Guid)
+        elif type_ == "ByteString":
+            return _value_to_variant_type(value, bytes, ua.VariantType.ByteString)
+        #elif type_ == "xml":
+        #    return _value_to_variant_type(value, str, ua.VariantType.XmlElement)
+        #elif type_ == "nodeid":
+        #    return _value_to_variant_type(value, ua.NodeId.from_string, ua.VariantType.NodeId)
+        #elif type_ == "expandednodeid":
+        #    return _value_to_variant_type(value, ua.ExpandedNodeId.from_string, ua.VariantType.ExpandedNodeId)
+        #elif type_ == "statuscode":
+        #    return _value_to_variant_type(value, int, ua.VariantType.StatusCode)
+        #elif type_ in ("qualifiedname", "browsename"):
+        #    return _value_to_variant_type(value, ua.QualifiedName.from_string, ua.VariantType.QualifiedName)
+        elif type_ == "LocalizedText":
+            return _value_to_variant_type(value, ua.LocalizedText, ua.VariantType.LocalizedText)
+
+
+    def _value_to_variant_type(value, ptype, varianttype=None):
+        #FIXME
+        # if isinstance(value, (list, tuple)
+        if isinstance(value, list):
+            value = [ptype(i) for i in value]
+        else:
+            value = ptype(value)
+
+        if varianttype:
+            return ua.Variant(value, varianttype)
+        else:
+            return ua.Variant(value)
+
+
+    def _bool(value):
+        if value in (True, "True", "true", 1, "1"):
+            return True
+        if value in (False, "False", "false", 0, "0"):
+            return False
+        else:
+            bool(value)
