@@ -162,6 +162,8 @@ class OpcuaClientNorthPlugin(object):
                                 read["type"] = item.get('type')
                                 read["node"] = item.get('node')
                                 read["timestamp"] = p['user_ts']
+                                _LOGGER.warn("Time: %s", str(p['user_ts']))
+
                                 await self._send_payloads(read)
             num_sent+=1
             _LOGGER.info('payloads sent: {num_sent}')
@@ -176,18 +178,15 @@ class OpcuaClientNorthPlugin(object):
         async with Client(url=config["url"]["value"]) as client:
 
             var = client.get_node(payload_block["node"])
-            #var = await client.nodes.root.get_child(["0:Objects", "1:Demo", "1:Scalar", "1:Int64"])
-            #type_ = "bool"
-            #value = [True, False, "true", "false", "True", "False", "1", "0", 1, 0  ]
 
-            _LOGGER.warn("My timestamp %s type %s", str(payload_block["timestamp"]), str(type(payload_block["timestamp"])))
-
-            _LOGGER.warn("My variable old value %s", await var.read_value())
+            #_LOGGER.warn("My variable old value %s", await var.read_value())
             datavalue = ua.DataValue(self._value_to_variant(payload_block["value"], payload_block["type"]))
-            datavalue.SourceTimestamp = datetime.utcnow()
+
+            datavalue.SourceTimestamp = datetime.fromisoformat(payload_block["timestamp"])#.utcnow()
+            #_LOGGER.warn("check timestamp %s", datetime.fromisoformat(payload_block["timestamp"]).strftime('%Y-%m-%d %H:%M:%S. %f'))
             await var.write_value(datavalue)
             #await var.write_value(self._value_to_variant(payload_block["value"], payload_block["type"])) #set node value using explicit data type
-            _LOGGER.warn("My variable  new value %s", await var.read_value())
+            #_LOGGER.warn("My variable  new value %s", await var.read_value())
         #num_count = 0
 
         #client = Client(config["url"]["value"])
