@@ -24,6 +24,7 @@ import asyncio
 import time
 import json
 import sys
+from datetime import datetime
 
 # Using the Python OpcuaClient
 # https://github.com/OpcuaClient/opcuaclient-iot-sdk-python
@@ -172,36 +173,45 @@ class OpcuaClientNorthPlugin(object):
 
     async def _send_payloads(self, payload_block):
         """ send a list of block payloads"""
-
-        num_count = 0
-
-        client = Client(config["url"]["value"])
-        # client = Client("opc.tcp://admin@localhost:4840/freeopcua/server/") #connect using a user
-        try:
-            client.connect()
+        async with Client(url=config["url"]["value"]) as client:
 
             var = client.get_node(payload_block["node"])
+            #var = await client.nodes.root.get_child(["0:Objects", "1:Demo", "1:Scalar", "1:Int64"])
+            #type_ = "bool"
+            #value = [True, False, "true", "false", "True", "False", "1", "0", 1, 0  ]
 
-            _LOGGER.warn("My variable before write %s %s", str(var), str(await var.read_value()))
+            _LOGGER.warn("My timestamp %s type %s", str(payload_block["timestamp"]), str(type(payload_block["timestamp"])))
+
+            _LOGGER.warn("My variable old value %s", await var.read_value())
+            datavalue = ua.DataValue(self._value_to_variant(payload_block["value"], payload_block["type"]))
+            datavalue.SourceTimestamp = datetime.utcnow()
+            await var.write_value(datavalue)
+            #await var.write_value(self._value_to_variant(payload_block["value"], payload_block["type"])) #set node value using explicit data type
+            _LOGGER.warn("My variable  new value %s", await var.read_value())
+        #num_count = 0
+
+        #client = Client(config["url"]["value"])
+        # client = Client("opc.tcp://admin@localhost:4840/freeopcua/server/") #connect using a user
+        #try:
+            #client.connect()
+
+            #_LOGGER.warn("payload %s", str(payload_block))
+
+            #var = client.get_node(payload_block["node"])
+
+            #_LOGGER.warn("My variable before write %s", str(await var.read_value()))
             #await var.write_value(ua.DataValue(value_to_variant(value, payload_block["type"]), SourceTimestamp=datetime.utcnow()))
-            await var.write_value(value_to_variant(value, payload_block["type"])) #set node value using explicit data type
-            _LOGGER.warn("My variable after write %s %s", str(var), str(await var.read_value()))
+            #await var.write_value(self._value_to_variant(payload_block["value"], payload_block["type"])) #set node value using explicit data type
+            #_LOGGER.warn("My variable after write %s %s", str(var), str(await var.read_value()))
 
+        #except Exception as ex:
+            #_LOGGER.exception(f'Exception sending payloads: {ex}')
+        #else:
+            #num_count += len(payload_block)
+        #finally:
+            #client.disconnect()
 
-
-
-
-
-
-
-        except Exception as ex:
-            _LOGGER.exception(f'Exception sending payloads: {ex}')
-        else:
-            num_count += len(payload_block)
-        finally:
-            client.disconnect()
-
-        return num_count
+        #return num_count
 
     async def _send(self, client, payload):
         """ Send the payload, using provided client """
@@ -209,54 +219,54 @@ class OpcuaClientNorthPlugin(object):
         await client.send_message(message)
         _LOGGER.info('Message successfully sent')
 
-    def _value_to_variant(value, type_):
+    def _value_to_variant(self, value, type_):
         type_ = type_.strip().lower()
 
         if type_ == "bool":
-            return _value_to_variant_type(value, _bool, ua.VariantType.Boolean)
+            return self._value_to_variant_type(value, self._bool, ua.VariantType.Boolean)
         elif type_ == "sbyte":
-            return _value_to_variant_type(value, int, ua.VariantType.SByte)
+            return self._value_to_variant_type(value, int, ua.VariantType.SByte)
         elif type_ == "byte":
-            return _value_to_variant_type(value, int, ua.VariantType.Byte)
+            return self._value_to_variant_type(value, int, ua.VariantType.Byte)
         elif type_ == "uint16":
-            return _value_to_variant_type(value, int, ua.VariantType.UInt16)
+            return self._value_to_variant_type(value, int, ua.VariantType.UInt16)
         elif type_ == "uint32":
-            return _value_to_variant_type(value, int, ua.VariantType.UInt32)
+            return self._value_to_variant_type(value, int, ua.VariantType.UInt32)
         elif type_ == "uint64":
-            return _value_to_variant_type(value, int, ua.VariantType.UInt64)
+            return self._value_to_variant_type(value, int, ua.VariantType.UInt64)
         elif type_ == "int16":
-            return _value_to_variant_type(value, int, ua.VariantType.Int16)
+            return self._value_to_variant_type(value, int, ua.VariantType.Int16)
         elif type_ == "int32":
-            return _value_to_variant_type(value, int, ua.VariantType.Int32)
+            return self._value_to_variant_type(value, int, ua.VariantType.Int32)
         elif type_ == "int64":
-            return _value_to_variant_type(value, int, ua.VariantType.Int64)
+            return self._value_to_variant_type(value, int, ua.VariantType.Int64)
         elif type_ == "float":
-            return _value_to_variant_type(value, float, ua.VariantType.Float)
+            return self._value_to_variant_type(value, float, ua.VariantType.Float)
         elif type_ == "double":
-            return _value_to_variant_type(value, float, ua.VariantType.Double)
+            return self._value_to_variant_type(value, float, ua.VariantType.Double)
         elif type_ == "string":
-            return _value_to_variant_type(value, str, ua.VariantType.String)
+            return self._value_to_variant_type(value, str, ua.VariantType.String)
         #elif type_ == "datetime":
         #    raise NotImplementedError
         #elif type_ == "Guid":
-        #    return _value_to_variant_type(value, bytes, ua.VariantType.Guid)
+        #    return self._value_to_variant_type(value, bytes, ua.VariantType.Guid)
         elif type_ == "ByteString":
-            return _value_to_variant_type(value, bytes, ua.VariantType.ByteString)
+            return self._value_to_variant_type(value, bytes, ua.VariantType.ByteString)
         #elif type_ == "xml":
-        #    return _value_to_variant_type(value, str, ua.VariantType.XmlElement)
+        #    return self._value_to_variant_type(value, str, ua.VariantType.XmlElement)
         #elif type_ == "nodeid":
-        #    return _value_to_variant_type(value, ua.NodeId.from_string, ua.VariantType.NodeId)
+        #    return self._value_to_variant_type(value, ua.NodeId.from_string, ua.VariantType.NodeId)
         #elif type_ == "expandednodeid":
-        #    return _value_to_variant_type(value, ua.ExpandedNodeId.from_string, ua.VariantType.ExpandedNodeId)
+        #    return self._value_to_variant_type(value, ua.ExpandedNodeId.from_string, ua.VariantType.ExpandedNodeId)
         #elif type_ == "statuscode":
-        #    return _value_to_variant_type(value, int, ua.VariantType.StatusCode)
+        #    return self._value_to_variant_type(value, int, ua.VariantType.StatusCode)
         #elif type_ in ("qualifiedname", "browsename"):
-        #    return _value_to_variant_type(value, ua.QualifiedName.from_string, ua.VariantType.QualifiedName)
+        #    return self._value_to_variant_type(value, ua.QualifiedName.from_string, ua.VariantType.QualifiedName)
         elif type_ == "LocalizedText":
-            return _value_to_variant_type(value, ua.LocalizedText, ua.VariantType.LocalizedText)
+            return self._value_to_variant_type(value, ua.LocalizedText, ua.VariantType.LocalizedText)
 
 
-    def _value_to_variant_type(value, ptype, varianttype=None):
+    def _value_to_variant_type(self, value, ptype, varianttype=None):
         #FIXME
         # if isinstance(value, (list, tuple)
         if isinstance(value, list):
@@ -270,7 +280,7 @@ class OpcuaClientNorthPlugin(object):
             return ua.Variant(value)
 
 
-    def _bool(value):
+    def _bool(self, value):
         if value in (True, "True", "true", 1, "1"):
             return True
         if value in (False, "False", "false", 0, "0"):
