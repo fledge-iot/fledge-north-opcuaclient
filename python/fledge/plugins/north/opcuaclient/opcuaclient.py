@@ -165,7 +165,7 @@ class OpcuaClientNorthPlugin(object):
                                 _LOGGER.warn("Time: %s", str(p['user_ts']))
 
                                 await self._send_payloads(read)
-            num_sent+=1
+                num_sent+=1
             _LOGGER.info('payloads sent: {num_sent}')
             is_data_sent = True
         except Exception as ex:
