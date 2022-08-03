@@ -97,7 +97,7 @@ _DEFAULT_CONFIG = {
 def plugin_info():
     return {
         'name': 'opcuaclient',
-        'version': '1.9.1',
+        'version': '2.0.0',
         'type': 'north',
         'interface': '1.0',
         'config': _DEFAULT_CONFIG
