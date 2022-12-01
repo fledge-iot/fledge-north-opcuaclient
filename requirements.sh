@@ -26,7 +26,7 @@ echo "Platform is ${os_name}, Version: ${os_version}"
 
 pygte37=$(python3 -c 'import sys; print("Y") if sys.version_info.major >= 3 and sys.version_info.minor >= 7 else print("N")')
 
-if [ pygte37 == "Y" ]
+if [ ${pygte37} == "Y" ]
 then
     python3 -m pip install asyncua
 else
