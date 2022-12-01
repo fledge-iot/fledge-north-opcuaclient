@@ -1,6 +1,5 @@
 # A set of variables that define how we package this repository
 #
-set -e
 
 plugin_name=opcuaclient
 plugin_type=north
@@ -13,7 +12,14 @@ plugin_package_name=fledge-${plugin_type}-opcuaclient
 #   3. Package manager specific packages we depend on
 requirements="fledge"
 
-./requirements.sh 
+pygte37=$(python3 -c 'import sys; print("Y") if sys.version_info.major >= 3 and sys.version_info.minor >= 7 else print("N")')
+
+if [ ${pygte37} == "N" ]
+then
+    echo "Requires platform with Python >= 3.7"
+    exit 0;
+  
+fi
 
 case "$arch" in
 	x86_64)
