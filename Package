@@ -1,5 +1,7 @@
 # A set of variables that define how we package this repository
 #
+set -e
+
 plugin_name=opcuaclient
 plugin_type=north
 plugin_install_dirname=${plugin_name}
@@ -10,6 +12,8 @@ plugin_package_name=fledge-${plugin_type}-opcuaclient
 #   2. Architecture specific packages we depend on
 #   3. Package manager specific packages we depend on
 requirements="fledge"
+
+./requirements.sh 
 
 case "$arch" in
 	x86_64)
