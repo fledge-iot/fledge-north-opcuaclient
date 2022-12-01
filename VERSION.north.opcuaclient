@@ -1,2 +1,2 @@
-fledge_north_opcuaclient_version=1.9.1
-fledge_version>=1.9
+fledge_north_opcuaclient_version=2.0.1
+fledge_version>=2.0
