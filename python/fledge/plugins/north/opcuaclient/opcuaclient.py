@@ -142,9 +142,10 @@ class OpcuaClientNorthPlugin(object):
         last_object_id = 0
         num_sent = 0
 
+        #unused
         size_payload_block = 0
 
-        map = json.loads(config['map']['value'])
+        map = config['map']['value']
 
         try:
             _LOGGER.info('processing payloads')
@@ -162,9 +163,10 @@ class OpcuaClientNorthPlugin(object):
                                 read["type"] = item.get('type')
                                 read["node"] = item.get('node')
                                 read["timestamp"] = p['user_ts']
-                                _LOGGER.warn("Time: %s", str(p['user_ts']))
+                                # _LOGGER.warn("Time: %s", str(p['user_ts']))
 
                                 await self._send_payloads(read)
+               
                 num_sent+=1
             _LOGGER.info('payloads sent: {num_sent}')
             is_data_sent = True
@@ -180,9 +182,11 @@ class OpcuaClientNorthPlugin(object):
             var = client.get_node(payload_block["node"])
 
             #_LOGGER.warn("My variable old value %s", await var.read_value())
-            datavalue = ua.DataValue(self._value_to_variant(payload_block["value"], payload_block["type"]))
+            # datavalue = ua.DataValue(self._value_to_variant(payload_block["value"], payload_block["type"]))
+            datavalue = ua.DataValue(Value=self._value_to_variant(payload_block["value"], payload_block["type"]), SourceTimestamp = datetime.utcnow())
 
-            datavalue.SourceTimestamp = datetime.fromisoformat(payload_block["timestamp"])#.utcnow()
+            # datavalue.SourceTimestamp = datetime.fromisoformat(payload_block["timestamp"])#.utcnow()
+            # datavalue.SourceTimestamp = datetime.utcnow()
             #_LOGGER.warn("check timestamp %s", datetime.fromisoformat(payload_block["timestamp"]).strftime('%Y-%m-%d %H:%M:%S. %f'))
             await var.write_value(datavalue)
             #await var.write_value(self._value_to_variant(payload_block["value"], payload_block["type"])) #set node value using explicit data type
@@ -211,12 +215,6 @@ class OpcuaClientNorthPlugin(object):
             #client.disconnect()
 
         #return num_count
-
-    async def _send(self, client, payload):
-        """ Send the payload, using provided client """
-
-        await client.send_message(message)
-        _LOGGER.info('Message successfully sent')
 
     def _value_to_variant(self, value, type_):
         type_ = type_.strip().lower()
