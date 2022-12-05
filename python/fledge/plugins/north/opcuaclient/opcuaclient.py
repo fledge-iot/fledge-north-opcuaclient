@@ -121,14 +121,14 @@ class OpcuaClientNorthPlugin(object):
         num_sent = 0
 
         try:
-            register_map = config['map']['value']
+            _map = config['map']['value']
             _LOGGER.debug('processing payloads: {}'.format(payloads))
-            _LOGGER.debug('map: {}'.format(register_map))
+            _LOGGER.debug('map: {}'.format(_map))
 
             for p in payloads:
                 last_object_id = p["id"]
-                if p['asset_code'] in register_map:
-                    for datapoint, item in register_map[p['asset_code']].items():
+                if p['asset_code'] in _map:
+                    for datapoint, item in _map[p['asset_code']].items():
                         if not (item.get('node') is None) and not (item.get('type') is None):
                             if datapoint in p['reading']:
                                 read = dict()
@@ -139,7 +139,8 @@ class OpcuaClientNorthPlugin(object):
                                 _LOGGER.debug("Time: %s", str(p['user_ts']))
 
                                 await self._send_payloads(read)
-                num_sent += 1
+                                
+                                num_sent += 1
             _LOGGER.info('payloads sent: {num_sent}'.format(num_sent=num_sent))
             is_data_sent = True
         except Exception as ex:
