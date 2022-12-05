@@ -19,17 +19,13 @@
 # ************************************************************************
 
 
-""" OpcuaClient North plugin"""
+""" OpcuaClient North plugin """
+
 import asyncio
-import time
 import json
-import sys
+import logging
 from datetime import datetime
 
-# Using the Python OpcuaClient
-# https://github.com/OpcuaClient/opcuaclient-iot-sdk-python
-# python min requirment python 3.7
-#from asyncua import Client
 from asyncua import Client, Node, ua
 from fledge.common import logger
 from fledge.plugins.north.common.common import *
@@ -39,10 +35,8 @@ __copyright__ = "Copyright (c) 2021 Austrian Center for Digital Production (ACDP
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
-_LOGGER = logger.setup(__name__)
+_LOGGER = logger.setup(__name__, level=logging.INFO)
 
-_CONFIG_CATEGORY_NAME = "OPCUACLIENT"
-_CONFIG_CATEGORY_DESCRIPTION = "OpcuaClient Python North Plugin"
 
 _DEFAULT_CONFIG = {
     'plugin': {
@@ -73,60 +67,47 @@ _DEFAULT_CONFIG = {
          "description": "Source of data to be sent on the stream. May be either readings or statistics.",
          "type": "enumeration",
          "default": "readings",
-         "options": [ "readings", "statistics" ],
+         "options": ["readings", "statistics"],
          'order': '3',
          'displayName': 'Source'
-    },
-    "applyFilter": {
-        "description": "Should filter be applied before processing data",
-        "type": "boolean",
-        "default": "false",
-        'order': '4',
-        'displayName': 'Apply Filter'
-    },
-    "filterRule": {
-        "description": "JQ formatted filter to apply (only applicable if applyFilter is True)",
-        "type": "string",
-        "default": ".[]",
-        'order': '5',
-        'displayName': 'Filter Rule',
-        "validity": "applyFilter == \"true\""
     }
 }
 
+
 def plugin_info():
     return {
-        'name': 'opcuaclient',
-        'version': '1.9.1',
+        'name': 'OPCUA Client',
+        'version': '2.0.1',
         'type': 'north',
         'interface': '1.0',
         'config': _DEFAULT_CONFIG
     }
 
+
 def plugin_init(data):
-    _LOGGER.info('Initializing OpcuaClient North Python Plugin')
     global opcuaclient_north, config
     opcuaclient_north = OpcuaClientNorthPlugin()
     config = data
-    _LOGGER.info(f'Initializing plugin with Primary Connection String: {config["url"]["value"]}')
     return config
+
 
 async def plugin_send(data, payload, stream_id):
     try:
-        _LOGGER.info(f'OpcuaClient North Python - plugin_send: {stream_id}')
         is_data_sent, new_last_object_id, num_sent = await opcuaclient_north.send_payloads(payload)
     except asyncio.CancelledError as ex:
         _LOGGER.exception(f'Exception occurred in plugin_send: {ex}')
     else:
-        _LOGGER.info('payload sent successfully')
+        _LOGGER.debug('payload sent successfully')
         return is_data_sent, new_last_object_id, num_sent
+
 
 def plugin_shutdown(data):
     pass
 
-# TODO: North plugin can not be reconfigured? (per callback mechanism)
+
 def plugin_reconfigure():
     pass
+
 
 class OpcuaClientNorthPlugin(object):
     """ North Opcua Client Plugin """
@@ -134,27 +115,20 @@ class OpcuaClientNorthPlugin(object):
     def __init__(self):
         self.event_loop = asyncio.get_event_loop()
 
-    def opcuaclient_error(self, error):
-        _LOGGER.error(f'OpcuaClient error: {error}')
-
     async def send_payloads(self, payloads):
         is_data_sent = False
         last_object_id = 0
         num_sent = 0
 
-        size_payload_block = 0
-
-        map = json.loads(config['map']['value'])
-
         try:
-            _LOGGER.info('processing payloads')
-            payload_block = list()
+            _map = config['map']['value']
+            _LOGGER.debug('processing payloads: {}'.format(payloads))
+            _LOGGER.debug('map: {}'.format(_map))
 
             for p in payloads:
                 last_object_id = p["id"]
-
-                if p['asset_code'] in map:
-                    for datapoint, item in map[p['asset_code']].items():
+                if p['asset_code'] in _map:
+                    for datapoint, item in _map[p['asset_code']].items():
                         if not (item.get('node') is None) and not (item.get('type') is None):
                             if datapoint in p['reading']:
                                 read = dict()
@@ -162,11 +136,12 @@ class OpcuaClientNorthPlugin(object):
                                 read["type"] = item.get('type')
                                 read["node"] = item.get('node')
                                 read["timestamp"] = p['user_ts']
-                                _LOGGER.warn("Time: %s", str(p['user_ts']))
+                                _LOGGER.debug("Time: %s", str(p['user_ts']))
 
                                 await self._send_payloads(read)
-                num_sent+=1
-            _LOGGER.info('payloads sent: {num_sent}')
+                                
+                                num_sent += 1
+            _LOGGER.info('payloads sent: {num_sent}'.format(num_sent=num_sent))
             is_data_sent = True
         except Exception as ex:
             _LOGGER.exception("Data could not be sent, %s", str(ex))
@@ -176,47 +151,39 @@ class OpcuaClientNorthPlugin(object):
     async def _send_payloads(self, payload_block):
         """ send a list of block payloads"""
         async with Client(url=config["url"]["value"]) as client:
-
             var = client.get_node(payload_block["node"])
 
-            #_LOGGER.warn("My variable old value %s", await var.read_value())
-            datavalue = ua.DataValue(self._value_to_variant(payload_block["value"], payload_block["type"]))
-
-            datavalue.SourceTimestamp = datetime.fromisoformat(payload_block["timestamp"])#.utcnow()
-            #_LOGGER.warn("check timestamp %s", datetime.fromisoformat(payload_block["timestamp"]).strftime('%Y-%m-%d %H:%M:%S. %f'))
+            # _LOGGER.warn("My variable old value %s", await var.read_value())
+            datavalue = ua.DataValue(Value=self._value_to_variant(payload_block["value"], payload_block["type"]),
+                                     SourceTimestamp=datetime.utcnow())
+            # _LOGGER.warn("check timestamp %s", datetime.fromisoformat(payload_block["timestamp"]).strftime('%Y-%m-%d %H:%M:%S. %f'))
             await var.write_value(datavalue)
-            #await var.write_value(self._value_to_variant(payload_block["value"], payload_block["type"])) #set node value using explicit data type
-            #_LOGGER.warn("My variable  new value %s", await var.read_value())
-        #num_count = 0
+            # await var.write_value(self._value_to_variant(payload_block["value"], payload_block["type"])) #set node value using explicit data type
+            # _LOGGER.warn("My variable  new value %s", await var.read_value())
+        # num_count = 0
 
-        #client = Client(config["url"]["value"])
+        # client = Client(config["url"]["value"])
         # client = Client("opc.tcp://admin@localhost:4840/freeopcua/server/") #connect using a user
-        #try:
-            #client.connect()
+        # try:
+            # client.connect()
 
-            #_LOGGER.warn("payload %s", str(payload_block))
+            # _LOGGER.warn("payload %s", str(payload_block))
 
-            #var = client.get_node(payload_block["node"])
+            # var = client.get_node(payload_block["node"])
 
-            #_LOGGER.warn("My variable before write %s", str(await var.read_value()))
-            #await var.write_value(ua.DataValue(value_to_variant(value, payload_block["type"]), SourceTimestamp=datetime.utcnow()))
-            #await var.write_value(self._value_to_variant(payload_block["value"], payload_block["type"])) #set node value using explicit data type
-            #_LOGGER.warn("My variable after write %s %s", str(var), str(await var.read_value()))
+            # _LOGGER.warn("My variable before write %s", str(await var.read_value()))
+            # await var.write_value(ua.DataValue(value_to_variant(value, payload_block["type"]), SourceTimestamp=datetime.utcnow()))
+            # await var.write_value(self._value_to_variant(payload_block["value"], payload_block["type"])) #set node value using explicit data type
+            # _LOGGER.warn("My variable after write %s %s", str(var), str(await var.read_value()))
 
-        #except Exception as ex:
-            #_LOGGER.exception(f'Exception sending payloads: {ex}')
-        #else:
-            #num_count += len(payload_block)
-        #finally:
-            #client.disconnect()
+        # except Exception as ex:
+            # _LOGGER.exception(f'Exception sending payloads: {ex}')
+        # else:
+            # num_count += len(payload_block)
+        # finally:
+            # client.disconnect()
 
-        #return num_count
-
-    async def _send(self, client, payload):
-        """ Send the payload, using provided client """
-
-        await client.send_message(message)
-        _LOGGER.info('Message successfully sent')
+        # return num_count
 
     def _value_to_variant(self, value, type_):
         type_ = type_.strip().lower()
@@ -245,28 +212,27 @@ class OpcuaClientNorthPlugin(object):
             return self._value_to_variant_type(value, float, ua.VariantType.Double)
         elif type_ == "string":
             return self._value_to_variant_type(value, str, ua.VariantType.String)
-        #elif type_ == "datetime":
+        # elif type_ == "datetime":
         #    raise NotImplementedError
-        #elif type_ == "Guid":
+        # elif type_ == "Guid":
         #    return self._value_to_variant_type(value, bytes, ua.VariantType.Guid)
         elif type_ == "ByteString":
             return self._value_to_variant_type(value, bytes, ua.VariantType.ByteString)
-        #elif type_ == "xml":
+        # elif type_ == "xml":
         #    return self._value_to_variant_type(value, str, ua.VariantType.XmlElement)
-        #elif type_ == "nodeid":
+        # elif type_ == "nodeid":
         #    return self._value_to_variant_type(value, ua.NodeId.from_string, ua.VariantType.NodeId)
-        #elif type_ == "expandednodeid":
+        # elif type_ == "expandednodeid":
         #    return self._value_to_variant_type(value, ua.ExpandedNodeId.from_string, ua.VariantType.ExpandedNodeId)
-        #elif type_ == "statuscode":
+        # elif type_ == "statuscode":
         #    return self._value_to_variant_type(value, int, ua.VariantType.StatusCode)
-        #elif type_ in ("qualifiedname", "browsename"):
+        # elif type_ in ("qualifiedname", "browsename"):
         #    return self._value_to_variant_type(value, ua.QualifiedName.from_string, ua.VariantType.QualifiedName)
         elif type_ == "LocalizedText":
             return self._value_to_variant_type(value, ua.LocalizedText, ua.VariantType.LocalizedText)
 
-
     def _value_to_variant_type(self, value, ptype, varianttype=None):
-        #FIXME
+        # FIXME:
         # if isinstance(value, (list, tuple)
         if isinstance(value, list):
             value = [ptype(i) for i in value]
@@ -277,7 +243,6 @@ class OpcuaClientNorthPlugin(object):
             return ua.Variant(value, varianttype)
         else:
             return ua.Variant(value)
-
 
     def _bool(self, value):
         if value in (True, "True", "true", 1, "1"):
