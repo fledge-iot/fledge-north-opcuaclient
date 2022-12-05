@@ -19,15 +19,13 @@
 # ************************************************************************
 
 
-""" OpcuaClient North plugin"""
+""" OpcuaClient North plugin """
+
 import asyncio
 import json
 import logging
 from datetime import datetime
 
-# Using the Python OpcuaClient
-# https://github.com/OpcuaClient/opcuaclient-iot-sdk-python
-# python min requirment python 3.7
 from asyncua import Client, Node, ua
 from fledge.common import logger
 from fledge.plugins.north.common.common import *
@@ -123,12 +121,14 @@ class OpcuaClientNorthPlugin(object):
         num_sent = 0
 
         try:
-            _LOGGER.debug('processing payloads')
-            map = config['map']['value']
+            register_map = config['map']['value']
+            _LOGGER.debug('processing payloads: {}'.format(payloads))
+            _LOGGER.debug('map: {}'.format(register_map))
+
             for p in payloads:
                 last_object_id = p["id"]
-                if p['asset_code'] in map:
-                    for datapoint, item in map[p['asset_code']].items():
+                if p['asset_code'] in register_map:
+                    for datapoint, item in register_map[p['asset_code']].items():
                         if not (item.get('node') is None) and not (item.get('type') is None):
                             if datapoint in p['reading']:
                                 read = dict()
@@ -140,7 +140,7 @@ class OpcuaClientNorthPlugin(object):
 
                                 await self._send_payloads(read)
                 num_sent += 1
-            _LOGGER.info('payloads sent: {num_sent}')
+            _LOGGER.info('payloads sent: {num_sent}'.format(num_sent=num_sent))
             is_data_sent = True
         except Exception as ex:
             _LOGGER.exception("Data could not be sent, %s", str(ex))
@@ -153,8 +153,8 @@ class OpcuaClientNorthPlugin(object):
             var = client.get_node(payload_block["node"])
 
             # _LOGGER.warn("My variable old value %s", await var.read_value())
-            datavalue = ua.DataValue(self._value_to_variant(payload_block["value"], payload_block["type"]))
-            datavalue.SourceTimestamp = datetime.fromisoformat(payload_block["timestamp"])#.utcnow()
+            datavalue = ua.DataValue(Value=self._value_to_variant(payload_block["value"], payload_block["type"]),
+                                     SourceTimestamp=datetime.utcnow())
             # _LOGGER.warn("check timestamp %s", datetime.fromisoformat(payload_block["timestamp"]).strftime('%Y-%m-%d %H:%M:%S. %f'))
             await var.write_value(datavalue)
             # await var.write_value(self._value_to_variant(payload_block["value"], payload_block["type"])) #set node value using explicit data type
