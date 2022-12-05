@@ -136,7 +136,7 @@ class OpcuaClientNorthPlugin(object):
                                 read["type"] = item.get('type')
                                 read["node"] = item.get('node')
                                 read["timestamp"] = p['user_ts']
-                                # _LOGGER.debug("Time: %s", str(p['user_ts']))
+                                _LOGGER.debug("Time: %s", str(p['user_ts']))
 
                                 await self._send_payloads(read)
                 num_sent += 1
