@@ -149,41 +149,14 @@ class OpcuaClientNorthPlugin(object):
         return is_data_sent, last_object_id, num_sent
 
     async def _send_payloads(self, payload_block):
-        """ send a list of block payloads"""
+        """ send a list of block payload """
         async with Client(url=config["url"]["value"]) as client:
             var = client.get_node(payload_block["node"])
+            user_ts = datetime.strptime(payload_block["timestamp"], '%Y-%m-%d %H:%M:%S.%f%z')
+            data_value = ua.DataValue(Value=self._value_to_variant(payload_block["value"], payload_block["type"]),
+                                     SourceTimestamp=user_ts)
+            await var.write_value(data_value)
 
-            # _LOGGER.warn("My variable old value %s", await var.read_value())
-            datavalue = ua.DataValue(Value=self._value_to_variant(payload_block["value"], payload_block["type"]),
-                                     SourceTimestamp=datetime.utcnow())
-            # _LOGGER.warn("check timestamp %s", datetime.fromisoformat(payload_block["timestamp"]).strftime('%Y-%m-%d %H:%M:%S. %f'))
-            await var.write_value(datavalue)
-            # await var.write_value(self._value_to_variant(payload_block["value"], payload_block["type"])) #set node value using explicit data type
-            # _LOGGER.warn("My variable  new value %s", await var.read_value())
-        # num_count = 0
-
-        # client = Client(config["url"]["value"])
-        # client = Client("opc.tcp://admin@localhost:4840/freeopcua/server/") #connect using a user
-        # try:
-            # client.connect()
-
-            # _LOGGER.warn("payload %s", str(payload_block))
-
-            # var = client.get_node(payload_block["node"])
-
-            # _LOGGER.warn("My variable before write %s", str(await var.read_value()))
-            # await var.write_value(ua.DataValue(value_to_variant(value, payload_block["type"]), SourceTimestamp=datetime.utcnow()))
-            # await var.write_value(self._value_to_variant(payload_block["value"], payload_block["type"])) #set node value using explicit data type
-            # _LOGGER.warn("My variable after write %s %s", str(var), str(await var.read_value()))
-
-        # except Exception as ex:
-            # _LOGGER.exception(f'Exception sending payloads: {ex}')
-        # else:
-            # num_count += len(payload_block)
-        # finally:
-            # client.disconnect()
-
-        # return num_count
 
     def _value_to_variant(self, value, type_):
         type_ = type_.strip().lower()
