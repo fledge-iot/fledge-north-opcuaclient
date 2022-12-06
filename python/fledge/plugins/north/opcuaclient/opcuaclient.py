@@ -139,8 +139,17 @@ class OpcuaClientNorthPlugin(object):
                                 read["node"] = item.get('node')
                                 read["timestamp"] = p['user_ts']
                                 await self._send_payloads(url, read)
+                            else:
+                                _LOGGER.warning("{} datapoint is missing in map configuration.".format(datapoint))
+                        else:
+                            _LOGGER.warning("For {} datapoint, either node or type KV pair is missing "
+                                            "in map configuration.".format(datapoint))
+                else:
+                    _LOGGER.warning("{} asset code is missing in map configuration.".format(asset_code))
                 num_sent += 1
             is_data_sent = True
+        except ua.uaerrors.UaStatusCodeError as err:
+            _LOGGER.error("Data could not be sent, %s", str(err))
         except Exception as ex:
             _LOGGER.exception("Data could not be sent, %s", str(ex))
 
