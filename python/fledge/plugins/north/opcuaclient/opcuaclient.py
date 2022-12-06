@@ -122,7 +122,7 @@ class OpcuaClientNorthPlugin(object):
 
         try:
             _map = config['map']['value']
-            _LOGGER.debug('processing payloads: {}'.format(payloads))
+            _LOGGER.debug('payloads size: {}'.format(len(payloads)))
             _LOGGER.debug('map: {}'.format(_map))
 
             for p in payloads:
