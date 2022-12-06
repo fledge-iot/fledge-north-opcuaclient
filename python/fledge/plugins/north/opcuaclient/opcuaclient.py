@@ -25,6 +25,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
+from copy import deepcopy
 
 from asyncua import Client, Node, ua
 from fledge.common import logger
@@ -85,19 +86,18 @@ def plugin_info():
 
 
 def plugin_init(data):
-    global opcuaclient_north, config
-    opcuaclient_north = OpcuaClientNorthPlugin()
-    config = data
-    return config
+    config_data = deepcopy(data)
+    config_data['opcua_client'] = OpcuaClientNorthPlugin(config=config_data)
+    return config_data
 
 
 async def plugin_send(data, payload, stream_id):
     try:
-        is_data_sent, new_last_object_id, num_sent = await opcuaclient_north.send_payloads(payload)
+        opcua_client = data['opcua_client']
+        is_data_sent, new_last_object_id, num_sent = await opcua_client.send_payloads(payload)
     except asyncio.CancelledError as ex:
-        _LOGGER.exception(f'Exception occurred in plugin_send: {ex}')
+        pass
     else:
-        _LOGGER.debug('payload sent successfully')
         return is_data_sent, new_last_object_id, num_sent
 
 
@@ -112,8 +112,9 @@ def plugin_reconfigure():
 class OpcuaClientNorthPlugin(object):
     """ North Opcua Client Plugin """
 
-    def __init__(self):
+    def __init__(self, config):
         self.event_loop = asyncio.get_event_loop()
+        self.config = config
 
     async def send_payloads(self, payloads):
         is_data_sent = False
@@ -121,14 +122,15 @@ class OpcuaClientNorthPlugin(object):
         num_sent = 0
 
         try:
-            _map = config['map']['value']
             _LOGGER.debug('payloads size: {}'.format(len(payloads)))
+            _map = self.config['map']['value']
             _LOGGER.debug('map: {}'.format(_map))
-
+            url = self.config["url"]["value"]
             for p in payloads:
+                asset_code = p['asset_code']
                 last_object_id = p["id"]
-                if p['asset_code'] in _map:
-                    for datapoint, item in _map[p['asset_code']].items():
+                if asset_code in _map:
+                    for datapoint, item in _map[asset_code].items():
                         if not (item.get('node') is None) and not (item.get('type') is None):
                             if datapoint in p['reading']:
                                 read = dict()
@@ -136,21 +138,17 @@ class OpcuaClientNorthPlugin(object):
                                 read["type"] = item.get('type')
                                 read["node"] = item.get('node')
                                 read["timestamp"] = p['user_ts']
-                                _LOGGER.debug("Time: %s", str(p['user_ts']))
-
-                                await self._send_payloads(read)
-                                
-                                num_sent += 1
-            _LOGGER.info('payloads sent: {num_sent}'.format(num_sent=num_sent))
+                                await self._send_payloads(url, read)
+                num_sent += 1
             is_data_sent = True
         except Exception as ex:
             _LOGGER.exception("Data could not be sent, %s", str(ex))
 
         return is_data_sent, last_object_id, num_sent
 
-    async def _send_payloads(self, payload_block):
+    async def _send_payloads(self, url, payload_block):
         """ send a list of block payload """
-        async with Client(url=config["url"]["value"]) as client:
+        async with Client(url=url) as client:
             var = client.get_node(payload_block["node"])
             user_ts = datetime.strptime(payload_block["timestamp"], '%Y-%m-%d %H:%M:%S.%f%z')
             data_value = ua.DataValue(Value=self._value_to_variant(payload_block["value"], payload_block["type"]),
