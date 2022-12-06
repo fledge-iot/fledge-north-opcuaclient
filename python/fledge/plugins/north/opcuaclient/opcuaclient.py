@@ -28,7 +28,7 @@ from datetime import datetime
 
 from asyncua import Client, Node, ua
 from fledge.common import logger
-from fledge.plugins.north.common.common import *
+
 
 __author__ = "Sebastian Kropatschek"
 __copyright__ = "Copyright (c) 2021 Austrian Center for Digital Production (ACDP)"
