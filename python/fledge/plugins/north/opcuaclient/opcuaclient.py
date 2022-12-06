@@ -140,12 +140,12 @@ class OpcuaClientNorthPlugin(object):
                                 read["timestamp"] = p['user_ts']
                                 await self._send_payloads(url, read)
                             else:
-                                _LOGGER.warning("{} datapoint is missing in map configuration.".format(datapoint))
+                                _LOGGER.debug("{} datapoint is missing in map configuration.".format(datapoint))
                         else:
-                            _LOGGER.warning("For {} datapoint, either node or type KV pair is missing "
+                            _LOGGER.debug("For {} datapoint, either node or type KV pair is missing "
                                             "in map configuration.".format(datapoint))
                 else:
-                    _LOGGER.warning("{} asset code is missing in map configuration.".format(asset_code))
+                    _LOGGER.debug("{} asset code is missing in map configuration.".format(asset_code))
                 num_sent += 1
             is_data_sent = True
         except ua.uaerrors.UaStatusCodeError as err:
