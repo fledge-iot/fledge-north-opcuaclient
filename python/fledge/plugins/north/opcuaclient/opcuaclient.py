@@ -51,7 +51,7 @@ _DEFAULT_CONFIG = {
         'type': 'string',
         'default': 'opc.tcp://mark.local:53530/OPCUA/SimulationServer',
         'order': '1',
-        'displayName': 'Primary Connection String'
+        'displayName': 'OPCUA Server URL'
     },
     'map': {
         'description': 'map',
