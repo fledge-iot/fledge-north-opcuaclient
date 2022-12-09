@@ -25,6 +25,7 @@ case "$arch" in
 	x86_64)
 		;;
 	armv7l)
+	    requirements="${requirements},libssl-dev"
 		;;
 	aarch64)
 		;;
