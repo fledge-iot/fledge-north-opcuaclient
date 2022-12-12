@@ -2,8 +2,8 @@
 .. |opcuaclient_1| image:: images/opcuaclient.jpg
 
 
-North OpcuaClient
-=================
+North OPC UA Client
+===================
 
 The *fledge-north-opcuaclient* plugin allows data to be sent with an OPC UA Client to a OPC UA Server.
 
@@ -15,9 +15,9 @@ The plugin may be used within a north *task* or *service*. Both of these are cre
 
   - Choose *opcuaclient* from the plugin selection list
 
-  - Name your service
+  - Name your task or service
 
-  - Select if you wish to create a task or a service
+  - Select if you wish to create a service otherwise by default task
 
   - Click on *Next*
 
@@ -27,9 +27,25 @@ The plugin may be used within a north *task* or *service*. Both of these are cre
   | |opcuaclient_1| |
   +-----------------+
 
-      - **OPCUA Server URL**: The url of the OPC UA Server from which data will be extracted. The URL should be of the form opc.tcp://...
+      - **OPC UA Server URL**: The url of the OPC UA Server to which data will be sent. The URL should be of the form opc.tcp://...
 
-      - **Register Map**: The register map defines which are set of locations in the OPC UA object hierarchy.
+      - **Map**: A map for asset datapoints/attributes to OPC UA node objects. A map JSON structure be like the outer names are Asset names and the inner names are Datapoint names.
+
+        For example:
+
+        .. code-block:: JSON
+
+            {
+                "sensor": {
+                    "temperature": {
+                        "node": "ns=1;i=1013",
+                        "type": "Float"
+                    }
+                }
+            }
+
+        - sensor is an asset name
+        - temperature is a datapoint name
 
       - **Source**: The source of the data to be sent, this may be the *readings* or *statistics* data.
 

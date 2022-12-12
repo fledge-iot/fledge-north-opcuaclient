@@ -51,10 +51,10 @@ _DEFAULT_CONFIG = {
         'type': 'string',
         'default': 'opc.tcp://mark.local:53530/OPCUA/SimulationServer',
         'order': '1',
-        'displayName': 'OPCUA Server URL'
+        'displayName': 'OPC UA Server URL'
     },
     'map': {
-        'description': 'map',
+        'description': 'A map for asset datapoints/attributes to OPC UA node objects',
         'type': 'JSON',
         'default': json.dumps({
             "sinusoid": {
@@ -62,7 +62,7 @@ _DEFAULT_CONFIG = {
             }
         }),
         'order': '2',
-        'displayName': 'Register Map'
+        'displayName': 'Map'
     },
     "source": {
          "description": "Source of data to be sent on the stream. May be either readings or statistics.",

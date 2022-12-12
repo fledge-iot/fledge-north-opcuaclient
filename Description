@@ -1,1 +1,1 @@
-A Python plugin for Fledge that sends data north to with an OPC UA Client to a OPC UA Server
+A Python based OPC UA Client plugin for Fledge that sends data north to OPC UA Server
