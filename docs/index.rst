@@ -5,7 +5,7 @@
 North OPC UA Client
 ===================
 
-The *fledge-north-opcuaclient* plugin allows data to be sent with an OPC UA Client to a OPC UA Server.
+The *fledge-north-opcuaclient* is a python based OPC UA Client plugin for Fledge that sends data north to an OPC UA Server.
 
 The plugin may be used within a north *task* or *service*. Both of these are created via the *North* menu item in the Fledge user interface.
 
