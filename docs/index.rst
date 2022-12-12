@@ -29,7 +29,7 @@ The plugin may be used within a north *task* or *service*. Both of these are cre
 
       - **OPC UA Server URL**: The url of the OPC UA Server to which data will be sent. The URL should be of the form opc.tcp://...
 
-      - **Map**: A map for asset datapoints/attributes to OPC UA node objects. A map JSON structure be like the outer names are Asset names and the inner names are Datapoint names.
+      - **Map**: A map for asset datapoints/attributes to OPC UA node objects. A map JSON structure in which the outer names are Asset names and the inner names are Datapoint names.
 
         For example:
 
