@@ -19,7 +19,7 @@
 # ************************************************************************
 
 
-""" OpcuaClient North plugin """
+""" OPC UA Client North plugin """
 
 import asyncio
 import json
@@ -41,7 +41,7 @@ _LOGGER = logger.setup(__name__, level=logging.INFO)
 
 _DEFAULT_CONFIG = {
     'plugin': {
-         'description': 'Opcua Client North Plugin',
+         'description': 'OPC UA Client North Plugin',
          'type': 'string',
          'default': 'opcuaclient',
          'readonly': 'true'
@@ -51,10 +51,10 @@ _DEFAULT_CONFIG = {
         'type': 'string',
         'default': 'opc.tcp://mark.local:53530/OPCUA/SimulationServer',
         'order': '1',
-        'displayName': 'Primary Connection String'
+        'displayName': 'OPC UA Server URL'
     },
     'map': {
-        'description': 'map',
+        'description': 'A map for asset datapoints/attributes to OPC UA node objects',
         'type': 'JSON',
         'default': json.dumps({
             "sinusoid": {
@@ -62,7 +62,7 @@ _DEFAULT_CONFIG = {
             }
         }),
         'order': '2',
-        'displayName': 'Register Map'
+        'displayName': 'Map'
     },
     "source": {
          "description": "Source of data to be sent on the stream. May be either readings or statistics.",
@@ -77,7 +77,7 @@ _DEFAULT_CONFIG = {
 
 def plugin_info():
     return {
-        'name': 'OPCUA Client',
+        'name': 'OPC UA Client',
         'version': '2.0.1',
         'type': 'north',
         'interface': '1.0',
