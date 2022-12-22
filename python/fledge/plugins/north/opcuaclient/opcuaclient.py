@@ -27,7 +27,7 @@ import logging
 from datetime import datetime
 from copy import deepcopy
 
-from asyncua import Client, Node, ua
+from asyncua import Client, ua
 from fledge.common import logger
 
 
@@ -91,11 +91,11 @@ def plugin_init(data):
     return config_data
 
 
-async def plugin_send(data, payload, stream_id):
+async def plugin_send(handle, payload, stream_id):
     try:
-        opcua_client = data['opcua_client']
+        opcua_client = handle['opcua_client']
         is_data_sent, new_last_object_id, num_sent = await opcua_client.send_payloads(payload)
-    except asyncio.CancelledError as ex:
+    except asyncio.CancelledError:
         pass
     else:
         return is_data_sent, new_last_object_id, num_sent
@@ -110,7 +110,6 @@ def plugin_reconfigure():
 
 
 class OpcuaClientNorthPlugin(object):
-    """ North Opcua Client Plugin """
 
     def __init__(self, config):
         self.event_loop = asyncio.get_event_loop()
@@ -133,17 +132,14 @@ class OpcuaClientNorthPlugin(object):
                     for datapoint, item in _map[asset_code].items():
                         if not (item.get('node') is None) and not (item.get('type') is None):
                             if datapoint in p['reading']:
-                                read = dict()
-                                read["value"] = p['reading'][datapoint]
-                                read["type"] = item.get('type')
-                                read["node"] = item.get('node')
-                                read["timestamp"] = p['user_ts']
+                                read = {"value": p['reading'][datapoint], "type": item.get('type'),
+                                        "node": item.get('node'), "timestamp": p['user_ts']}
                                 await self._send_payloads(url, read)
                             else:
                                 _LOGGER.debug("{} datapoint is missing in map configuration.".format(datapoint))
                         else:
                             _LOGGER.debug("For {} datapoint, either node or type KV pair is missing "
-                                            "in map configuration.".format(datapoint))
+                                          "in map configuration.".format(datapoint))
                 else:
                     _LOGGER.debug("{} asset code is missing in map configuration.".format(asset_code))
                 num_sent += 1
@@ -152,7 +148,6 @@ class OpcuaClientNorthPlugin(object):
             _LOGGER.error("Data could not be sent, %s", str(err))
         except Exception as ex:
             _LOGGER.exception("Data could not be sent, %s", str(ex))
-
         return is_data_sent, last_object_id, num_sent
 
     async def _send_payloads(self, url, payload_block):
@@ -161,9 +156,8 @@ class OpcuaClientNorthPlugin(object):
             var = client.get_node(payload_block["node"])
             user_ts = datetime.strptime(payload_block["timestamp"], '%Y-%m-%d %H:%M:%S.%f%z')
             data_value = ua.DataValue(Value=self._value_to_variant(payload_block["value"], payload_block["type"]),
-                                     SourceTimestamp=user_ts)
+                                      SourceTimestamp=user_ts)
             await var.write_value(data_value)
-
 
     def _value_to_variant(self, value, type_):
         type_ = type_.strip().lower()
@@ -230,4 +224,4 @@ class OpcuaClientNorthPlugin(object):
         if value in (False, "False", "false", 0, "0"):
             return False
         else:
-            bool(value)
+            return bool(value)
