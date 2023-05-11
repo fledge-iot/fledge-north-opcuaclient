@@ -65,7 +65,7 @@ _DEFAULT_CONFIG = {
         'displayName': 'Map'
     },
     "source": {
-         "description": "Source of data to be sent on the stream. May be either readings or statistics.",
+         "description": "Source of data to be sent on the stream. May be either readings or statistics",
          "type": "enumeration",
          "default": "readings",
          "options": ["readings", "statistics"],
@@ -73,7 +73,7 @@ _DEFAULT_CONFIG = {
          'displayName': 'Source'
     },
     "authentication_mode": {
-        "description": "User authentication modes.",
+        "description": "User authentication mode",
         "type": "enumeration",
         "options": ["Anonymous", "Username And Password"],  # "Certificate", "IssuedToken"
         "displayName": "Authentication mode",
@@ -82,7 +82,7 @@ _DEFAULT_CONFIG = {
         "group": "Authentication"
     },
     "username": {
-        "description": "Username for the connection.",
+        "description": "Username for the connection",
         "type": "string",
         "default": "",
         'order': '5',
@@ -100,7 +100,7 @@ _DEFAULT_CONFIG = {
         "validity": "authentication_mode == \"Username And Password\""
     },
     "security_mode": {
-        "description": "Security mode for the connection.",
+        "description": "Security mode for the connection",
         "type": "enumeration",
         "default": "None",
         "options": ["None", "Sign", "SignAndEncrypt"],
@@ -109,7 +109,7 @@ _DEFAULT_CONFIG = {
         "group": "Security"
     },
     "security_policy": {
-        "description": "Security Policy for the connection.",
+        "description": "Security Policy for the connection",
         "type": "enumeration",
         "default": "Basic128Rsa15",
         "options": ["Basic128Rsa15", "Basic256", "Basic256Sha256"],
@@ -159,7 +159,11 @@ class OpcuaClientNorthPlugin(object):
 
     def __init__(self, config):
         self.event_loop = asyncio.get_event_loop()
-        self.config = config
+        self.map = config["map"]["value"]
+        self.url = config["url"]["value"]
+        self.authentication_mode = config["authentication_mode"]["value"]
+        self.username = config["username"]["value"]
+        self.password = config["password"]["value"]
 
     async def send_payloads(self, payloads):
         is_data_sent = False
@@ -168,19 +172,16 @@ class OpcuaClientNorthPlugin(object):
 
         try:
             _LOGGER.debug('payloads size: {}'.format(len(payloads)))
-            _map = self.config['map']['value']
-            _LOGGER.debug('map: {}'.format(_map))
-            url = self.config["url"]["value"]
             for p in payloads:
                 asset_code = p['asset_code']
                 last_object_id = p["id"]
-                if asset_code in _map:
-                    for datapoint, item in _map[asset_code].items():
+                if asset_code in self.map:
+                    for datapoint, item in self.map[asset_code].items():
                         if not (item.get('node') is None) and not (item.get('type') is None):
                             if datapoint in p['reading']:
                                 read = {"value": p['reading'][datapoint], "type": item.get('type'),
                                         "node": item.get('node'), "timestamp": p['user_ts']}
-                                await self._send_payloads(url, read)
+                                await self._send_payloads(self.url, read)
                             else:
                                 _LOGGER.debug("{} datapoint is missing in map configuration.".format(datapoint))
                         else:
@@ -199,9 +200,9 @@ class OpcuaClientNorthPlugin(object):
     async def _send_payloads(self, url, payload_block):
         """ send a list of block payload """
         async with Client(url=url) as client:
-            if self.config['authentication_mode']['value'] != "Anonymous":
-                client.set_user(self.config['username']['value'])
-                client.set_password(self.config['password']['value'])
+            if self.authentication_mode != "Anonymous":
+                client.set_user(self.username)
+                client.set_password(self.password)
             var = client.get_node(payload_block["node"])
             user_ts = datetime.strptime(payload_block["timestamp"], '%Y-%m-%d %H:%M:%S.%f%z')
             data_value = ua.DataValue(Value=self._value_to_variant(payload_block["value"], payload_block["type"]),
