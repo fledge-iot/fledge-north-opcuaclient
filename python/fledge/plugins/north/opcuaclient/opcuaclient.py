@@ -71,6 +71,52 @@ _DEFAULT_CONFIG = {
          "options": ["readings", "statistics"],
          'order': '3',
          'displayName': 'Source'
+    },
+    "authentication_mode": {
+        "description": "User authentication modes.",
+        "type": "enumeration",
+        "options": ["Anonymous", "Username And Password"],  # "Certificate", "IssuedToken"
+        "displayName": "Authentication mode",
+        "default": "Anonymous",
+        "order": "4",
+        "group": "Authentication"
+    },
+    "username": {
+        "description": "Username for the connection.",
+        "type": "string",
+        "default": "",
+        'order': '5',
+        'displayName': 'Username',
+        "group": "Authentication",
+        "validity": "authentication_mode == \"Username And Password\""
+    },
+    "password": {
+        "description": "User Password for the connection.",
+        "type": "password",
+        "default": "",
+        'order': '6',
+        'displayName': 'Password',
+        "group": "Authentication",
+        "validity": "authentication_mode == \"Username And Password\""
+    },
+    "security_mode": {
+        "description": "Security mode for the connection.",
+        "type": "enumeration",
+        "default": "None",
+        "options": ["None", "Sign", "SignAndEncrypt"],
+        'order': '7',
+        'displayName': 'Security Mode',
+        "group": "Security"
+    },
+    "security_policy": {
+        "description": "Security Policy for the connection.",
+        "type": "enumeration",
+        "default": "Basic128Rsa15",
+        "options": ["Basic128Rsa15", "Basic256", "Basic256Sha256"],
+        'order': '8',
+        'displayName': 'Security Policy',
+        "group": "Security",
+        "validity": "security_mode != \"None\""
     }
 }
 
@@ -153,6 +199,9 @@ class OpcuaClientNorthPlugin(object):
     async def _send_payloads(self, url, payload_block):
         """ send a list of block payload """
         async with Client(url=url) as client:
+            if self.config['authentication_mode']['value'] != "Anonymous":
+                client.set_user(self.config['username']['value'])
+                client.set_password(self.config['password']['value'])
             var = client.get_node(payload_block["node"])
             user_ts = datetime.strptime(payload_block["timestamp"], '%Y-%m-%d %H:%M:%S.%f%z')
             data_value = ua.DataValue(Value=self._value_to_variant(payload_block["value"], payload_block["type"]),
