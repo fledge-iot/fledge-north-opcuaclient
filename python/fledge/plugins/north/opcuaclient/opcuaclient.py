@@ -28,7 +28,11 @@ from datetime import datetime
 from copy import deepcopy
 
 from asyncua import Client, ua
+from asyncua.crypto.security_policies import SecurityPolicyBasic128Rsa15, SecurityPolicyBasic256, \
+    SecurityPolicyBasic256Sha256
+
 from fledge.common import logger
+from fledge.common.common import _FLEDGE_ROOT, _FLEDGE_DATA
 
 
 __author__ = "Sebastian Kropatschek"
@@ -117,6 +121,33 @@ _DEFAULT_CONFIG = {
         'displayName': 'Security Policy',
         "group": "Security",
         "validity": "security_mode != \"None\""
+    },
+    "certificate": {
+        "description": "Certificate Key Name and should have either in .der or .pem format",
+        "type": "string",
+        "default": "",
+        'order': '9',
+        'displayName': 'Certificate Name',
+        "group": "Security",
+        "validity": "security_mode != \"None\""
+    },
+    "private_key": {
+        "description": "Private Key Name and should have either in .der or .pem format",
+        "type": "string",
+        "default": "",
+        'order': '10',
+        'displayName': 'Private Key Name',
+        "group": "Security",
+        "validity": "security_mode != \"None\""
+    },
+    "private_key_passphrase": {
+        "description": "Passphrase for private key",
+        "type": "password",
+        "default": "",
+        'order': '11',
+        'displayName': 'Passphrase',
+        "group": "Security",
+        "validity": "security_mode != \"None\""
     }
 }
 
@@ -164,6 +195,11 @@ class OpcuaClientNorthPlugin(object):
         self.authentication_mode = config["authentication_mode"]["value"]
         self.username = config["username"]["value"]
         self.password = config["password"]["value"]
+        self.security_mode = config["security_mode"]["value"]
+        self.security_policy = config["security_policy"]["value"]
+        self.certificate = config["certificate"]["value"]
+        self.private_key = config["private_key"]["value"]
+        self.private_key_passphrase = config["private_key_passphrase"]["value"]
 
     async def send_payloads(self, payloads):
         is_data_sent = False
@@ -203,6 +239,34 @@ class OpcuaClientNorthPlugin(object):
             if self.authentication_mode != "Anonymous":
                 client.set_user(self.username)
                 client.set_password(self.password)
+            if self.security_mode != "None":
+                # Example:
+                # Policy,Mode,certificate,private_key[,server_private_key]
+                # "Basic256Sha256,Sign,certificate-example.der,private-key-example.pem")
+
+                certificate = "{}/{}".format(self._get_certs_dir(), self.certificate)
+                private_key = "{}/{}".format(self._get_certs_dir(), self.private_key)
+                passphrase = "{}/{}".format(self._get_certs_dir(), self.private_key_passphrase)
+                # client.set_security_string("{},{},{},{}".format(self.security_policy, self.security_mode, certificate, private_key))
+
+                if self.security_policy == "Basic128Rsa15":
+                    policy = SecurityPolicyBasic128Rsa15
+                elif self.security_policy == "Basic256":
+                    policy = SecurityPolicyBasic256
+                else:
+                    policy = SecurityPolicyBasic256Sha256
+
+                if self.security_mode == "Sign":
+                    mode = ua.MessageSecurityMode.Sign
+                else:
+                    mode = ua.MessageSecurityMode.SignAndEncrypt
+                client.set_security(policy=policy,
+                                    certificate=certificate,
+                                    private_key=private_key,
+                                    private_key_password=passphrase,
+                                    server_certificate=None,  # FIXME: If required server cert
+                                    mode=mode)
+
             var = client.get_node(payload_block["node"])
             user_ts = datetime.strptime(payload_block["timestamp"], '%Y-%m-%d %H:%M:%S.%f%z')
             data_value = ua.DataValue(Value=self._value_to_variant(payload_block["value"], payload_block["type"]),
@@ -275,3 +339,11 @@ class OpcuaClientNorthPlugin(object):
             return False
         else:
             return bool(value)
+
+    def _get_certs_dir(self, _path="/etc/certs/"):
+        dir_path = _FLEDGE_DATA + _path if _FLEDGE_DATA else _FLEDGE_ROOT + '/data' + _path
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
+        certs_dir = os.path.expanduser(dir_path)
+        return certs_dir
+
