@@ -19,8 +19,9 @@
 # ************************************************************************
 
 
-""" OPC UA Client North plugin """
+"""OPC UA Client North plugin"""
 
+import os
 import asyncio
 import json
 import logging
@@ -235,38 +236,22 @@ class OpcuaClientNorthPlugin(object):
 
     async def _send_payloads(self, url, payload_block):
         """ send a list of block payload """
-        async with Client(url=url) as client:
-            if self.authentication_mode != "Anonymous":
-                client.set_user(self.username)
-                client.set_password(self.password)
-            if self.security_mode != "None":
-                # Example:
-                # Policy,Mode,certificate,private_key[,server_private_key]
-                # "Basic256Sha256,Sign,certificate-example.der,private-key-example.pem")
-
-                certificate = "{}/{}".format(self._get_certs_dir(), self.certificate)
-                private_key = "{}/{}".format(self._get_certs_dir(), self.private_key)
-                passphrase = "{}/{}".format(self._get_certs_dir(), self.private_key_passphrase)
-                # client.set_security_string("{},{},{},{}".format(self.security_policy, self.security_mode, certificate, private_key))
-
-                if self.security_policy == "Basic128Rsa15":
-                    policy = SecurityPolicyBasic128Rsa15
-                elif self.security_policy == "Basic256":
-                    policy = SecurityPolicyBasic256
-                else:
-                    policy = SecurityPolicyBasic256Sha256
-
-                if self.security_mode == "Sign":
-                    mode = ua.MessageSecurityMode.Sign
-                else:
-                    mode = ua.MessageSecurityMode.SignAndEncrypt
-                client.set_security(policy=policy,
-                                    certificate=certificate,
-                                    private_key=private_key,
-                                    private_key_password=passphrase,
-                                    server_certificate=None,  # FIXME: If required server cert
-                                    mode=mode)
-
+        client = Client(url=url)
+        if self.authentication_mode == "Username And Password":
+            client.set_user(self.username)
+            client.set_password(self.password)
+            _LOGGER.debug("{}-{}".format(client._username, client.password))
+        if self.security_mode != "None":
+            certificate = "{}/{}".format(self._get_certs_dir(), self.certificate)
+            private_key = "{}/{}".format(self._get_certs_dir(), self.private_key)
+            passphrase = "{}/{}".format(self._get_certs_dir(), self.private_key_passphrase) if self.private_key_passphrase else None
+            mode, policy = self._get_mode_and_policy()
+            _LOGGER.debug("{}-{}-{}-{}-{}".format(certificate, private_key, passphrase, mode, policy))
+            # FIXME: server certificate if required
+            await client.set_security(policy=policy, certificate=certificate, private_key=private_key,
+                                      private_key_password=passphrase, server_certificate=None, mode=mode)
+        _LOGGER.debug(client)
+        async with client:
             var = client.get_node(payload_block["node"])
             user_ts = datetime.strptime(payload_block["timestamp"], '%Y-%m-%d %H:%M:%S.%f%z')
             data_value = ua.DataValue(Value=self._value_to_variant(payload_block["value"], payload_block["type"]),
@@ -346,4 +331,14 @@ class OpcuaClientNorthPlugin(object):
             os.makedirs(dir_path)
         certs_dir = os.path.expanduser(dir_path)
         return certs_dir
+
+    def _get_mode_and_policy(self):
+        if self.security_policy == "Basic128Rsa15":
+            policy = SecurityPolicyBasic128Rsa15
+        elif self.security_policy == "Basic256":
+            policy = SecurityPolicyBasic256
+        else:
+            policy = SecurityPolicyBasic256Sha256
+        mode = ua.MessageSecurityMode.Sign if self.security_mode == "Sign" else ua.MessageSecurityMode.SignAndEncrypt
+        return mode, policy
 
