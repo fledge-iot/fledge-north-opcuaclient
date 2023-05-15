@@ -77,77 +77,86 @@ _DEFAULT_CONFIG = {
          'order': '3',
          'displayName': 'Source'
     },
-    "authentication_mode": {
-        "description": "User authentication mode",
+    "security_mode": {
+        "description": "Security Mode to use while connecting to OPCUA server",
+        "type": "enumeration",
+        "default": "None",
+        "options": ["None", "Sign", "SignAndEncrypt"],
+        'order': '4',
+        'displayName': 'Security Mode',
+        "group": "OPC UA Security"
+    },
+    "security_policy": {
+        "description": "Security Policy to use while connecting to OPCUA server",
+        "type": "enumeration",
+        "default": "None",
+        "options": ["None", "Basic128Rsa15", "Basic256", "Basic256Sha256"],
+        'order': '5',
+        'displayName': 'Security Policy',
+        "group": "OPC UA Security",
+        "validity": "security_mode != \"None\""
+    },
+    "user_authentication_mode": {
+        "description": "User authentication policy to use while connecting to OPCUA server",
         "type": "enumeration",
         "options": ["Anonymous", "Username And Password"],  # "Certificate", "IssuedToken"
-        "displayName": "Authentication mode",
+        "displayName": "User Authentication mode",
         "default": "Anonymous",
-        "order": "4",
-        "group": "Authentication"
+        "order": "6",
+        "group": "OPC UA Security"
     },
     "username": {
         "description": "Username for the connection",
         "type": "string",
         "default": "",
-        'order': '5',
+        'order': '7',
         'displayName': 'Username',
-        "group": "Authentication",
-        "validity": "authentication_mode == \"Username And Password\""
+        "group": "OPC UA Security",
+        "validity": "user_authentication_mode == \"Username And Password\""
     },
     "password": {
         "description": "User Password for the connection.",
         "type": "password",
         "default": "",
-        'order': '6',
-        'displayName': 'Password',
-        "group": "Authentication",
-        "validity": "authentication_mode == \"Username And Password\""
-    },
-    "security_mode": {
-        "description": "Security mode for the connection",
-        "type": "enumeration",
-        "default": "None",
-        "options": ["None", "Sign", "SignAndEncrypt"],
-        'order': '7',
-        'displayName': 'Security Mode',
-        "group": "Security"
-    },
-    "security_policy": {
-        "description": "Security Policy for the connection",
-        "type": "enumeration",
-        "default": "Basic128Rsa15",
-        "options": ["Basic128Rsa15", "Basic256", "Basic256Sha256"],
         'order': '8',
-        'displayName': 'Security Policy',
-        "group": "Security",
-        "validity": "security_mode != \"None\""
+        'displayName': 'Password',
+        "group": "OPC UA Security",
+        "validity": "user_authentication_mode == \"Username And Password\""
     },
-    "certificate": {
-        "description": "Certificate Key Name and should have either in .der or .pem format",
+    "server_certificate": {
+        "description": "Server certificate file in DER or PEM format",
         "type": "string",
         "default": "",
         'order': '9',
-        'displayName': 'Certificate Name',
-        "group": "Security",
+        'displayName': 'Server Public Certificate',
+        "group": "OPC UA Security",
         "validity": "security_mode != \"None\""
     },
-    "private_key": {
-        "description": "Private Key Name and should have either in .der or .pem format",
+    "client_certificate": {
+        "description": "Client certificate file either in DER or PEM format",
         "type": "string",
         "default": "",
         'order': '10',
-        'displayName': 'Private Key Name',
-        "group": "Security",
+        'displayName': 'Client Public Certificate',
+        "group": "OPC UA Security",
         "validity": "security_mode != \"None\""
     },
-    "private_key_passphrase": {
-        "description": "Passphrase for private key",
-        "type": "password",
+    "client_private_key": {
+        "description": "Client private key file in PEM format",
+        "type": "string",
         "default": "",
         'order': '11',
-        'displayName': 'Passphrase',
-        "group": "Security",
+        'displayName': 'Client Private Key',
+        "group": "OPC UA Security",
+        "validity": "security_mode != \"None\""
+    },
+    "client_private_key_passphrase": {
+        "description": "Passphrase for client private key",
+        "type": "password",
+        "default": "",
+        'order': '12',
+        'displayName': 'Client Private Passphrase',
+        "group": "OPC UA Security",
         "validity": "security_mode != \"None\""
     }
 }
@@ -193,14 +202,15 @@ class OpcuaClientNorthPlugin(object):
         self.event_loop = asyncio.get_event_loop()
         self.map = config["map"]["value"]
         self.url = config["url"]["value"]
-        self.authentication_mode = config["authentication_mode"]["value"]
+        self.user_authentication_mode = config["user_authentication_mode"]["value"]
         self.username = config["username"]["value"]
         self.password = config["password"]["value"]
         self.security_mode = config["security_mode"]["value"]
         self.security_policy = config["security_policy"]["value"]
-        self.certificate = config["certificate"]["value"]
-        self.private_key = config["private_key"]["value"]
-        self.private_key_passphrase = config["private_key_passphrase"]["value"]
+        self.server_certificate = config["server_certificate"]["value"]
+        self.client_certificate = config["client_certificate"]["value"]
+        self.client_private_key = config["client_private_key"]["value"]
+        self.client_private_key_passphrase = config["client_private_key_passphrase"]["value"]
 
     async def send_payloads(self, payloads):
         is_data_sent = False
@@ -237,19 +247,21 @@ class OpcuaClientNorthPlugin(object):
     async def _send_payloads(self, url, payload_block):
         """ send a list of block payload """
         client = Client(url=url)
-        if self.authentication_mode == "Username And Password":
+        if self.user_authentication_mode == "Username And Password":
             client.set_user(self.username)
             client.set_password(self.password)
-            _LOGGER.debug("{}-{}".format(client._username, client.password))
+            _LOGGER.debug("{}-{}".format(client._username, client._password))
         if self.security_mode != "None":
-            certificate = "{}/{}".format(self._get_certs_dir(), self.certificate)
-            private_key = "{}/{}".format(self._get_certs_dir(), self.private_key)
-            passphrase = "{}/{}".format(self._get_certs_dir(), self.private_key_passphrase) if self.private_key_passphrase else None
+            server_certificate = "{}/{}".format(self._get_certs_dir(),
+                                                self.server_certificate) if self.server_certificate else None
+            certificate = "{}/{}".format(self._get_certs_dir(), self.client_certificate)
+            private_key = "{}/{}".format(self._get_certs_dir(), self.client_private_key)
+            passphrase = "{}/{}".format(self._get_certs_dir(), self.client_private_key_passphrase
+                                        ) if self.client_private_key_passphrase else None
             mode, policy = self._get_mode_and_policy()
             _LOGGER.debug("{}-{}-{}-{}-{}".format(certificate, private_key, passphrase, mode, policy))
-            # FIXME: server certificate if required
             await client.set_security(policy=policy, certificate=certificate, private_key=private_key,
-                                      private_key_password=passphrase, server_certificate=None, mode=mode)
+                                      private_key_password=passphrase, server_certificate=server_certificate, mode=mode)
         _LOGGER.debug(client)
         async with client:
             var = client.get_node(payload_block["node"])
@@ -337,8 +349,10 @@ class OpcuaClientNorthPlugin(object):
             policy = SecurityPolicyBasic128Rsa15
         elif self.security_policy == "Basic256":
             policy = SecurityPolicyBasic256
-        else:
+        elif self.security_policy == "Basic256Sha256":
             policy = SecurityPolicyBasic256Sha256
+        else:
+            policy = None
         mode = ua.MessageSecurityMode.Sign if self.security_mode == "Sign" else ua.MessageSecurityMode.SignAndEncrypt
         return mode, policy
 
