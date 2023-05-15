@@ -30,7 +30,7 @@ from copy import deepcopy
 
 from asyncua import Client, ua
 from asyncua.crypto.security_policies import SecurityPolicyBasic128Rsa15, SecurityPolicyBasic256, \
-    SecurityPolicyBasic256Sha256
+    SecurityPolicyBasic256Sha256, SecurityPolicyAes128Sha256RsaOaep
 
 from fledge.common import logger
 from fledge.common.common import _FLEDGE_ROOT, _FLEDGE_DATA
@@ -90,7 +90,7 @@ _DEFAULT_CONFIG = {
         "description": "Security Policy to use while connecting to OPCUA server",
         "type": "enumeration",
         "default": "None",
-        "options": ["None", "Basic128Rsa15", "Basic256", "Basic256Sha256"],
+        "options": ["None", "Basic128Rsa15", "Basic256", "Basic256Sha256", "Aes128Sha256RsaOaep"],
         'order': '5',
         'displayName': 'Security Policy',
         "group": "OPC UA Security",
@@ -100,7 +100,7 @@ _DEFAULT_CONFIG = {
         "description": "User authentication policy to use while connecting to OPCUA server",
         "type": "enumeration",
         "options": ["Anonymous", "Username And Password"],  # "Certificate", "IssuedToken"
-        "displayName": "User Authentication mode",
+        "displayName": "User Authentication Mode",
         "default": "Anonymous",
         "order": "6",
         "group": "OPC UA Security"
@@ -130,7 +130,7 @@ _DEFAULT_CONFIG = {
         'order': '9',
         'displayName': 'Server Public Certificate',
         "group": "OPC UA Security",
-        "validity": "security_mode != \"None\""
+        "validity": "security_mode != \"None\" && security_policy != \"None\""
     },
     "client_certificate": {
         "description": "Client certificate file either in DER or PEM format",
@@ -139,7 +139,7 @@ _DEFAULT_CONFIG = {
         'order': '10',
         'displayName': 'Client Public Certificate',
         "group": "OPC UA Security",
-        "validity": "security_mode != \"None\""
+        "validity": "security_mode != \"None\" && security_policy != \"None\""
     },
     "client_private_key": {
         "description": "Client private key file in PEM format",
@@ -148,16 +148,16 @@ _DEFAULT_CONFIG = {
         'order': '11',
         'displayName': 'Client Private Key',
         "group": "OPC UA Security",
-        "validity": "security_mode != \"None\""
+        "validity": "security_mode != \"None\" && security_policy != \"None\""
     },
     "client_private_key_passphrase": {
         "description": "Passphrase for client private key",
         "type": "password",
         "default": "",
         'order': '12',
-        'displayName': 'Client Private Passphrase',
+        'displayName': 'Client Private Passphrase Key',
         "group": "OPC UA Security",
-        "validity": "security_mode != \"None\""
+        "validity": "security_mode != \"None\" && security_policy != \"None\""
     }
 }
 
@@ -216,7 +216,6 @@ class OpcuaClientNorthPlugin(object):
         is_data_sent = False
         last_object_id = 0
         num_sent = 0
-
         try:
             _LOGGER.debug('payloads size: {}'.format(len(payloads)))
             for p in payloads:
@@ -246,23 +245,48 @@ class OpcuaClientNorthPlugin(object):
 
     async def _send_payloads(self, url, payload_block):
         """ send a list of block payload """
+        _LOGGER.debug("Server URL: {}".format(url))
         client = Client(url=url)
+        valid_cert_extensions = ('.der', '.pem')
         if self.user_authentication_mode == "Username And Password":
             client.set_user(self.username)
             client.set_password(self.password)
-            _LOGGER.debug("{}-{}".format(client._username, client._password))
-        if self.security_mode != "None":
-            server_certificate = "{}/{}".format(self._get_certs_dir(),
-                                                self.server_certificate) if self.server_certificate else None
-            certificate = "{}/{}".format(self._get_certs_dir(), self.client_certificate)
-            private_key = "{}/{}".format(self._get_certs_dir(), self.client_private_key)
-            passphrase = "{}/{}".format(self._get_certs_dir(), self.client_private_key_passphrase
-                                        ) if self.client_private_key_passphrase else None
+            _LOGGER.debug("Username: {}".format(client._username))
+        if self.security_mode != "None" and self.security_policy != "None":
+            certs_dir = self._get_certs_dir()
+            server_certificate = None
+            if self.server_certificate:
+                if self.server_certificate not in valid_cert_extensions:
+                    _LOGGER.warning("Server certificate must have either in DER or PEM format.")
+                else:
+                    server_certificate = "{}/{}".format(certs_dir, self.server_certificate)
+            if self.client_certificate:
+                if self.client_certificate not in valid_cert_extensions:
+                    _LOGGER.warning("Client certificate must have either in DER or PEM format.")
+                else:
+                    certificate = "{}/{}".format(certs_dir, self.client_certificate)
+            else:
+                _LOGGER.warning("Client certificate cannot be empty and must have either in DER or PEM format.")
+            if self.client_private_key:
+                if str(self.client_private_key).endswith('.pem'):
+                    _LOGGER.warning("Private key must have in PEM format.")
+                else:
+                    private_key = "{}/{}".format(certs_dir, self.client_private_key)
+            else:
+                _LOGGER.warning("Private Key cannot be empty and must have in PEM format.")
+            passphrase = self.client_private_key_passphrase if self.client_private_key_passphrase else None
             mode, policy = self._get_mode_and_policy()
-            _LOGGER.debug("{}-{}-{}-{}-{}".format(certificate, private_key, passphrase, mode, policy))
+            _LOGGER.debug(
+                "Client Cert path: {}, Private Cert Path: {}, User Authentication Mode: {}, Security Policy: {}".format(
+                    certificate, private_key, passphrase, mode, policy))
+            # Find Application URI as it requires to match the URI in the certificate
+            servers = await client.connect_and_find_servers()
+            _LOGGER.debug("Servers list: {}".format(servers))
+            app_uri = [s.ApplicationUri for s in servers]
+            _LOGGER.debug("Application URI: {}".format(app_uri[0]))
+            client.application_uri = app_uri[0]
             await client.set_security(policy=policy, certificate=certificate, private_key=private_key,
                                       private_key_password=passphrase, server_certificate=server_certificate, mode=mode)
-        _LOGGER.debug(client)
         async with client:
             var = client.get_node(payload_block["node"])
             user_ts = datetime.strptime(payload_block["timestamp"], '%Y-%m-%d %H:%M:%S.%f%z')
@@ -345,14 +369,16 @@ class OpcuaClientNorthPlugin(object):
         return certs_dir
 
     def _get_mode_and_policy(self):
-        if self.security_policy == "Basic128Rsa15":
-            policy = SecurityPolicyBasic128Rsa15
-        elif self.security_policy == "Basic256":
-            policy = SecurityPolicyBasic256
-        elif self.security_policy == "Basic256Sha256":
+        # Note: Basic256, Basic128Rsa15 are DEPRECATED! Avoid to use though their support is still available
+        if self.security_policy == "Basic256Sha256":
             policy = SecurityPolicyBasic256Sha256
+        elif self.security_policy == "Aes128Sha256RsaOaep":
+            policy = SecurityPolicyAes128Sha256RsaOaep
+        elif self.security_policy == "Basic128Rsa15":
+            policy = SecurityPolicyBasic128Rsa15
         else:
-            policy = None
+            # Basic256
+            policy = SecurityPolicyBasic256
         mode = ua.MessageSecurityMode.Sign if self.security_mode == "Sign" else ua.MessageSecurityMode.SignAndEncrypt
         return mode, policy
 
