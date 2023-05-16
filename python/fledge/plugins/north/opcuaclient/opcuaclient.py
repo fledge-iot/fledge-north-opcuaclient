@@ -207,6 +207,7 @@ class OpcuaClientNorthPlugin(object):
         self.password = config["password"]["value"]
         self.security_mode = config["security_mode"]["value"]
         self.security_policy = config["security_policy"]["value"]
+        self.certs_dir = self._get_certs_dir()
         self.server_certificate = config["server_certificate"]["value"]
         self.client_certificate = config["client_certificate"]["value"]
         self.client_private_key = config["client_private_key"]["value"]
@@ -253,32 +254,37 @@ class OpcuaClientNorthPlugin(object):
             client.set_password(self.password)
             _LOGGER.debug("Username: {}".format(client._username))
         if self.security_mode != "None" and self.security_policy != "None":
-            certs_dir = self._get_certs_dir()
             server_certificate = None
+            certificate = ""
+            private_key = ""
             if self.server_certificate:
-                if self.server_certificate not in valid_cert_extensions:
+                if not self.server_certificate.endswith(valid_cert_extensions):
                     _LOGGER.warning("Server certificate must have either in DER or PEM format.")
                 else:
-                    server_certificate = "{}/{}".format(certs_dir, self.server_certificate)
+                    cert_path = "{}pem/".format(self.certs_dir) if str(self.server_certificate).endswith(
+                        '.pem') else self.certs_dir
+                    server_certificate = "{}{}".format(cert_path, self.server_certificate)
             if self.client_certificate:
-                if self.client_certificate not in valid_cert_extensions:
+                if not self.client_certificate.endswith(valid_cert_extensions):
                     _LOGGER.warning("Client certificate must have either in DER or PEM format.")
                 else:
-                    certificate = "{}/{}".format(certs_dir, self.client_certificate)
+                    cert_path = "{}pem/".format(self.certs_dir) if str(self.client_certificate).endswith(
+                        '.pem') else self.certs_dir
+                    certificate = "{}{}".format(cert_path, self.client_certificate)
             else:
                 _LOGGER.warning("Client certificate cannot be empty and must have either in DER or PEM format.")
             if self.client_private_key:
-                if str(self.client_private_key).endswith('.pem'):
+                if not str(self.client_private_key).endswith('.pem'):
                     _LOGGER.warning("Private key must have in PEM format.")
                 else:
-                    private_key = "{}/{}".format(certs_dir, self.client_private_key)
+                    private_key = "{}{}".format(self.certs_dir, self.client_private_key)
             else:
                 _LOGGER.warning("Private Key cannot be empty and must have in PEM format.")
             passphrase = self.client_private_key_passphrase if self.client_private_key_passphrase else None
             mode, policy = self._get_mode_and_policy()
-            _LOGGER.debug(
-                "Client Cert path: {}, Private Cert Path: {}, User Authentication Mode: {}, Security Policy: {}".format(
-                    certificate, private_key, passphrase, mode, policy))
+            _LOGGER.debug("Server Certificate: {}, Client Cert path: {}, Private Cert Path: {}, "
+                          "User Authentication Mode: {}, Security Policy: {}".format(server_certificate, certificate,
+                                                                                     private_key, mode, policy))
             # Find Application URI as it requires to match the URI in the certificate
             servers = await client.connect_and_find_servers()
             _LOGGER.debug("Servers list: {}".format(servers))
@@ -365,8 +371,7 @@ class OpcuaClientNorthPlugin(object):
         dir_path = _FLEDGE_DATA + _path if _FLEDGE_DATA else _FLEDGE_ROOT + '/data' + _path
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
-        certs_dir = os.path.expanduser(dir_path)
-        return certs_dir
+        return os.path.expanduser(dir_path)
 
     def _get_mode_and_policy(self):
         # Note: Basic256, Basic128Rsa15 are DEPRECATED! Avoid to use though their support is still available
