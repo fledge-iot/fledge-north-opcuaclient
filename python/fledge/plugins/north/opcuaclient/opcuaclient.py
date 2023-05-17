@@ -198,6 +198,10 @@ def plugin_reconfigure():
 
 class OpcuaClientNorthPlugin(object):
 
+    __slots__ = ['event_loop', 'map', 'url', 'user_authentication_mode', 'username', 'password', 'security_mode',
+                 'security_policy', 'certs_dir', 'server_certificate', 'client_certificate', 'client_private_key',
+                 'client_private_key_passphrase']
+
     def __init__(self, config):
         self.event_loop = asyncio.get_event_loop()
         self.map = config["map"]["value"]
@@ -212,6 +216,17 @@ class OpcuaClientNorthPlugin(object):
         self.client_certificate = config["client_certificate"]["value"]
         self.client_private_key = config["client_private_key"]["value"]
         self.client_private_key_passphrase = config["client_private_key_passphrase"]["value"]
+
+    def __repr__(self):
+        template = 'OPCUA client info <url={opcua.url}, map={opcua.map}, mode={opcua.user_authentication_mode}, ' \
+                   'username={opcua.username}, securityMode={opcua.security_mode}, ' \
+                   'securityPolicy={opcua.security_policy}, certsDir={opcua.certs_dir}, ' \
+                   'serverCert={opcua.server_certificate}, clientCert={opcua.client_certificate}, ' \
+                   'clientKey={opcua.client_private_key}>'
+        return template.format(opcua=self)
+
+    def __str__(self):
+        return self.__repr__()
 
     async def send_payloads(self, payloads):
         is_data_sent = False
@@ -228,7 +243,7 @@ class OpcuaClientNorthPlugin(object):
                             if datapoint in p['reading']:
                                 read = {"value": p['reading'][datapoint], "type": item.get('type'),
                                         "node": item.get('node'), "timestamp": p['user_ts']}
-                                await self._send_payloads(self.url, read)
+                                await self._send_payloads(read)
                             else:
                                 _LOGGER.debug("{} datapoint is missing in map configuration.".format(datapoint))
                         else:
@@ -244,15 +259,13 @@ class OpcuaClientNorthPlugin(object):
             _LOGGER.exception("Data could not be sent, %s", str(ex))
         return is_data_sent, last_object_id, num_sent
 
-    async def _send_payloads(self, url, payload_block):
-        """ send a list of block payload """
-        _LOGGER.debug("Server URL: {}".format(url))
-        client = Client(url=url)
+    async def _send_payloads(self, payload_block):
+        """send a list of block payload"""
+        client = Client(url=self.url)
         valid_cert_extensions = ('.der', '.pem')
         if self.user_authentication_mode == "Username And Password":
             client.set_user(self.username)
             client.set_password(self.password)
-            _LOGGER.debug("Username: {}".format(client._username))
         if self.security_mode != "None" and self.security_policy != "None":
             server_certificate = None
             certificate = ""
@@ -282,9 +295,7 @@ class OpcuaClientNorthPlugin(object):
                 _LOGGER.warning("Private Key cannot be empty and must have in PEM format.")
             passphrase = self.client_private_key_passphrase if self.client_private_key_passphrase else None
             mode, policy = self._get_mode_and_policy()
-            _LOGGER.debug("Server Certificate: {}, Client Cert path: {}, Private Cert Path: {}, "
-                          "User Authentication Mode: {}, Security Policy: {}".format(server_certificate, certificate,
-                                                                                     private_key, mode, policy))
+            _LOGGER.debug(self.__str__())
             # Find Application URI as it requires to match the URI in the certificate
             servers = await client.connect_and_find_servers()
             _LOGGER.debug("Servers list: {}".format(servers))
