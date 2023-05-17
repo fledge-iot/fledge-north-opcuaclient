@@ -316,7 +316,7 @@ class OpcuaClientNorthPlugin(object):
                 await client.set_security(policy=policy, certificate=certificate, private_key=private_key,
                                           private_key_password=passphrase, server_certificate=server_certificate,
                                           mode=mode)
-                return client
+            return client
 
         def convert_node_identifier(cl):
             ids = []
