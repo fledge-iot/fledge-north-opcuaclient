@@ -199,12 +199,13 @@ def plugin_reconfigure():
 
 class OpcuaClientNorthPlugin(object):
 
-    __slots__ = ['event_loop', 'map', 'url', 'user_authentication_mode', 'username', 'password', 'security_mode',
-                 'security_policy', 'certs_dir', 'server_certificate', 'client_certificate', 'client_private_key',
-                 'client_private_key_passphrase']
+    __slots__ = ['event_loop', 'name', 'map', 'url', 'user_authentication_mode', 'username', 'password',
+                 'security_mode', 'security_policy', 'certs_dir', 'server_certificate', 'client_certificate',
+                 'client_private_key', 'client_private_key_passphrase']
 
     def __init__(self, config):
         self.event_loop = asyncio.get_event_loop()
+        self.name = config["plugin"]["value"]
         self.map = config["map"]["value"]
         self.url = config["url"]["value"]
         self.user_authentication_mode = config["user_authentication_mode"]["value"]
@@ -219,11 +220,11 @@ class OpcuaClientNorthPlugin(object):
         self.client_private_key_passphrase = config["client_private_key_passphrase"]["value"]
 
     def __repr__(self):
-        template = 'OPCUA client info <url={opcua.url}, map={opcua.map}, mode={opcua.user_authentication_mode}, ' \
-                   'username={opcua.username}, securityMode={opcua.security_mode}, ' \
-                   'securityPolicy={opcua.security_policy}, certsDir={opcua.certs_dir}, ' \
-                   'serverCert={opcua.server_certificate}, clientCert={opcua.client_certificate}, ' \
-                   'clientKey={opcua.client_private_key}>'
+        template = 'OPCUA client info <name={opcua.name}, url={opcua.url}, map={opcua.map}, ' \
+                   'mode={opcua.user_authentication_mode}, username={opcua.username}, ' \
+                   'securityMode={opcua.security_mode}, securityPolicy={opcua.security_policy}, ' \
+                   'certsDir={opcua.certs_dir}, serverCert={opcua.server_certificate}, ' \
+                   'clientCert={opcua.client_certificate}, clientKey={opcua.client_private_key}>'
         return template.format(opcua=self)
 
     def __str__(self):
@@ -235,6 +236,8 @@ class OpcuaClientNorthPlugin(object):
         num_sent = 0
         try:
             _LOGGER.debug('payloads size: {}'.format(len(payloads)))
+            nodes = []
+            node_values = []
             for p in payloads:
                 asset_code = p['asset_code']
                 last_object_id = p["id"]
@@ -242,9 +245,11 @@ class OpcuaClientNorthPlugin(object):
                     for datapoint, item in self.map[asset_code].items():
                         if not (item.get('node') is None) and not (item.get('type') is None):
                             if datapoint in p['reading']:
-                                read = {"value": p['reading'][datapoint], "type": item.get('type'),
-                                        "node": item.get('node'), "timestamp": p['user_ts']}
-                                await self._send_payloads(read)
+                                nodes.append(item.get('node'))
+                                user_ts = datetime.strptime(p["user_ts"], '%Y-%m-%d %H:%M:%S.%f%z')
+                                data_value = ua.DataValue(Value=self._value_to_variant(
+                                    p['reading'][datapoint], item.get('type')), SourceTimestamp=user_ts)
+                                node_values.append(data_value)
                             else:
                                 _LOGGER.debug("{} datapoint is missing in map configuration.".format(datapoint))
                         else:
@@ -252,65 +257,79 @@ class OpcuaClientNorthPlugin(object):
                                           "in map configuration.".format(datapoint))
                 else:
                     _LOGGER.debug("{} asset code is missing in map configuration.".format(asset_code))
-                num_sent += 1
-            is_data_sent = True
+            if nodes and node_values:
+                await self._write_values_to_nodes(nodes, node_values)
+                num_sent += len(payloads)
+                is_data_sent = True
         except ua.uaerrors.UaStatusCodeError as err:
             _LOGGER.error(err, "Data could not be sent as bad status code is encountered.")
         except Exception as ex:
             _LOGGER.exception(ex, "Failed during write value to OPCUA node.")
         return is_data_sent, last_object_id, num_sent
 
-    async def _send_payloads(self, payload_block):
-        """send a list of block payload"""
-        client = Client(url=self.url)
-        valid_cert_extensions = ('.der', '.pem')
-        if self.user_authentication_mode == "Username And Password":
-            client.set_user(self.username)
-            client.set_password(self.password)
-        if self.security_mode != "None" and self.security_policy != "None":
-            server_certificate = None
-            certificate = ""
-            private_key = ""
-            if self.server_certificate:
-                if not self.server_certificate.endswith(valid_cert_extensions):
-                    _LOGGER.warning("Server certificate must have either in DER or PEM format.")
+    async def _write_values_to_nodes(self, nodes, values):
+        """Write values to mulitple nodes in one call"""
+
+        async def _create_client_connection():
+            client = Client(url=self.url)
+            client.name = "Python based fledge-north-{} plugin".format(self.name)
+            valid_cert_extensions = ('.der', '.pem')
+            if self.user_authentication_mode == "Username And Password":
+                client.set_user(self.username)
+                client.set_password(self.password)
+            if self.security_mode != "None" and self.security_policy != "None":
+                server_certificate = None
+                certificate = ""
+                private_key = ""
+                if self.server_certificate:
+                    if not self.server_certificate.endswith(valid_cert_extensions):
+                        _LOGGER.warning("Server certificate must have either in DER or PEM format.")
+                    else:
+                        cert_path = "{}pem/".format(self.certs_dir) if str(self.server_certificate).endswith(
+                            '.pem') else self.certs_dir
+                        server_certificate = "{}{}".format(cert_path, self.server_certificate)
+                if self.client_certificate:
+                    if not self.client_certificate.endswith(valid_cert_extensions):
+                        _LOGGER.warning("Client certificate must have either in DER or PEM format.")
+                    else:
+                        cert_path = "{}pem/".format(self.certs_dir) if str(self.client_certificate).endswith(
+                            '.pem') else self.certs_dir
+                        certificate = "{}{}".format(cert_path, self.client_certificate)
                 else:
-                    cert_path = "{}pem/".format(self.certs_dir) if str(self.server_certificate).endswith(
-                        '.pem') else self.certs_dir
-                    server_certificate = "{}{}".format(cert_path, self.server_certificate)
-            if self.client_certificate:
-                if not self.client_certificate.endswith(valid_cert_extensions):
-                    _LOGGER.warning("Client certificate must have either in DER or PEM format.")
+                    _LOGGER.warning("Client certificate cannot be empty and must have either in DER or PEM format.")
+                if self.client_private_key:
+                    if not str(self.client_private_key).endswith('.pem'):
+                        _LOGGER.warning("Private key must have in PEM format.")
+                    else:
+                        private_key = "{}{}".format(self.certs_dir, self.client_private_key)
                 else:
-                    cert_path = "{}pem/".format(self.certs_dir) if str(self.client_certificate).endswith(
-                        '.pem') else self.certs_dir
-                    certificate = "{}{}".format(cert_path, self.client_certificate)
-            else:
-                _LOGGER.warning("Client certificate cannot be empty and must have either in DER or PEM format.")
-            if self.client_private_key:
-                if not str(self.client_private_key).endswith('.pem'):
-                    _LOGGER.warning("Private key must have in PEM format.")
-                else:
-                    private_key = "{}{}".format(self.certs_dir, self.client_private_key)
-            else:
-                _LOGGER.warning("Private Key cannot be empty and must have in PEM format.")
-            passphrase = self.client_private_key_passphrase if self.client_private_key_passphrase else None
-            mode, policy = self._get_mode_and_policy()
-            _LOGGER.debug(self.__str__())
-            # Find Application URI as it requires to match the URI in the certificate
-            servers = await client.connect_and_find_servers()
-            _LOGGER.debug("Servers list: {}".format(servers))
-            app_uri = [s.ApplicationUri for s in servers]
-            _LOGGER.debug("Application URI: {}".format(app_uri[0]))
-            client.application_uri = app_uri[0]
-            await client.set_security(policy=policy, certificate=certificate, private_key=private_key,
-                                      private_key_password=passphrase, server_certificate=server_certificate, mode=mode)
-        async with client:
-            var = client.get_node(payload_block["node"])
-            user_ts = datetime.strptime(payload_block["timestamp"], '%Y-%m-%d %H:%M:%S.%f%z')
-            data_value = ua.DataValue(Value=self._value_to_variant(payload_block["value"], payload_block["type"]),
-                                      SourceTimestamp=user_ts)
-            await var.write_value(data_value)
+                    _LOGGER.warning("Private Key cannot be empty and must have in PEM format.")
+                passphrase = self.client_private_key_passphrase if self.client_private_key_passphrase else None
+                mode, policy = self._get_mode_and_policy()
+                _LOGGER.debug(self.__str__())
+                # Find Application URI as it requires to match the URI in the certificate
+                servers = await client.connect_and_find_servers()
+                _LOGGER.debug("Servers list: {}".format(servers))
+                app_uri = [s.ApplicationUri for s in servers]
+                _LOGGER.debug("Application URI: {}".format(app_uri[0]))
+                client.application_uri = app_uri[0]
+                await client.set_security(policy=policy, certificate=certificate, private_key=private_key,
+                                          private_key_password=passphrase, server_certificate=server_certificate,
+                                          mode=mode)
+                return client
+
+        def convert_node_identifier(cl):
+            ids = []
+            for n in nodes:
+                ids.append(cl.get_node(n))
+            return ids
+
+        op_client = await _create_client_connection()
+        node_identifiers = convert_node_identifier(op_client)
+        _LOGGER.debug("Nodes: {}".format(node_identifiers))
+        _LOGGER.debug("Node Values to write: {}".format(values))
+        async with op_client:
+            await op_client.write_values(node_identifiers, values)
 
     def _value_to_variant(self, value, type_):
         type_ = type_.strip().lower()
