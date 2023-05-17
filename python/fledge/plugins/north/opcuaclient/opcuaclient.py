@@ -254,9 +254,9 @@ class OpcuaClientNorthPlugin(object):
                 num_sent += 1
             is_data_sent = True
         except ua.uaerrors.UaStatusCodeError as err:
-            _LOGGER.error("Data could not be sent, %s", str(err))
+            _LOGGER.error(err, "Data could not be sent as bad status code is encountered.")
         except Exception as ex:
-            _LOGGER.exception("Data could not be sent, %s", str(ex))
+            _LOGGER.exception(ex, "Failed during write value to OPCUA node.")
         return is_data_sent, last_object_id, num_sent
 
     async def _send_payloads(self, payload_block):
