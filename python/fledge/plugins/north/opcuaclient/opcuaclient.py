@@ -188,8 +188,9 @@ async def plugin_send(handle, payload, stream_id):
         return is_data_sent, new_last_object_id, num_sent
 
 
-def plugin_shutdown(data):
-    pass
+def plugin_shutdown(handle):
+    _LOGGER.info("{} plugin shutting down...".format(handle['plugin']['value']))
+    handle['opcua_client'] = None
 
 
 def plugin_reconfigure():
