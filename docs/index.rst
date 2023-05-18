@@ -65,16 +65,16 @@ On this tab a number of configuration parameters are available;
         .. code-block:: JSON
 
             {
-                "sensor": {
-                    "temperature": {
-                        "node": "ns=1;i=1013",
+                "sinusoid": {
+                    "sinusoid": {
+                        "node": "ns=3;i=1017",
                         "type": "Float"
                     }
                 }
             }
 
-        - sensor is an asset name
-        - temperature is a datapoint name
+        - sinusoid is an asset name
+        - sinusoid is a datapoint name
 
       - **Source**: The source of the data to be sent, this may be the *readings* or *statistics* data.
 
@@ -131,7 +131,7 @@ Typically the Certificate Authorities certificate is retrieved and uploaded to t
 An example to |generate_certificate| to do this is available as part of the underlying |FreeOpcUa|.
 
 .. note::
-    subjectAltName should be same as your OPCUA server Application URI and also the subject commonName should be your server FQDN or YOUR hostname.
+    subjectAltName should be same as your OPCUA server Application URI.
 
 Use the OpenSSL command-line utility to generate the certificate and key files to the formats needed for the Plugin.
 

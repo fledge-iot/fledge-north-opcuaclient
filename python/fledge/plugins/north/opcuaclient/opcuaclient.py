@@ -272,7 +272,7 @@ class OpcuaClientNorthPlugin(object):
 
         async def _create_client_connection():
             client = Client(url=self.url)
-            client.name = "Python based fledge-north-{} plugin".format(self.name)
+            client.name = client.description = "Python based fledge-north-{} plugin".format(self.name)
             valid_cert_extensions = ('.der', '.pem')
             if self.user_authentication_mode == "Username And Password":
                 client.set_user(self.username)
