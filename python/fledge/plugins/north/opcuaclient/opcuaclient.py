@@ -283,33 +283,33 @@ class OpcuaClientNorthPlugin(object):
                 private_key = ""
                 if self.server_certificate:
                     if not self.server_certificate.endswith(valid_cert_extensions):
-                        _LOGGER.warning("Server certificate must have either in DER or PEM format.")
+                        _LOGGER.warning("Server certificate must be either in DER or PEM format.")
                     else:
                         cert_path = "{}pem/".format(self.certs_dir) if str(self.server_certificate).endswith(
                             '.pem') else self.certs_dir
                         server_certificate = "{}{}".format(cert_path, self.server_certificate)
                 if self.client_certificate:
                     if not self.client_certificate.endswith(valid_cert_extensions):
-                        _LOGGER.warning("Client certificate must have either in DER or PEM format.")
+                        _LOGGER.warning("Client certificate must be either in DER or PEM format.")
                     else:
                         cert_path = "{}pem/".format(self.certs_dir) if str(self.client_certificate).endswith(
                             '.pem') else self.certs_dir
                         certificate = "{}{}".format(cert_path, self.client_certificate)
                 else:
-                    _LOGGER.warning("Client certificate cannot be empty and must have either in DER or PEM format.")
+                    _LOGGER.warning("Client certificate cannot be empty and must be either in DER or PEM format.")
                 if self.client_private_key:
                     if not str(self.client_private_key).endswith('.pem'):
-                        _LOGGER.warning("Private key must have in PEM format.")
+                        _LOGGER.warning("Private key must be in PEM format.")
                     else:
                         private_key = "{}{}".format(self.certs_dir, self.client_private_key)
                 else:
-                    _LOGGER.warning("Private Key cannot be empty and must have in PEM format.")
+                    _LOGGER.warning("Private Key cannot be empty and must be in PEM format.")
                 passphrase = self.client_private_key_passphrase if self.client_private_key_passphrase else None
                 mode, policy = self._get_mode_and_policy()
                 _LOGGER.debug(self.__str__())
                 # Find Application URI as it requires to match the URI in the certificate
                 servers = await client.connect_and_find_servers()
-                _LOGGER.debug("Servers list: {}".format(servers))
+                # _LOGGER.debug("Servers list: {}".format(servers))
                 app_uri = [s.ApplicationUri for s in servers]
                 _LOGGER.debug("Application URI: {}".format(app_uri[0]))
                 client.application_uri = app_uri[0]
@@ -326,8 +326,8 @@ class OpcuaClientNorthPlugin(object):
 
         op_client = await _create_client_connection()
         node_identifiers = convert_node_identifier(op_client)
-        _LOGGER.debug("Nodes: {}".format(node_identifiers))
-        _LOGGER.debug("Node Values to write: {}".format(values))
+        # _LOGGER.debug("Nodes: {}".format(node_identifiers))
+        # _LOGGER.debug("Node Values to write: {}".format(values))
         async with op_client:
             await op_client.write_values(node_identifiers, values)
 
