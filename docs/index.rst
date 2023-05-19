@@ -60,7 +60,9 @@ On this tab a number of configuration parameters are available;
 
       - **Map**: A map for asset datapoints/attributes to OPC UA node objects. A map JSON structure in which the outer names are Asset names and the inner names are Datapoint names.
 
-        For example:
+      Below are the various JSON examples:
+
+      a) When reading block is having with an asset and a single datapoint then map should be as follows:
 
         .. code-block:: JSON
 
@@ -76,6 +78,48 @@ On this tab a number of configuration parameters are available;
         - sinusoid is an asset name
         - sinusoid is a datapoint name
 
+      b) When reading block is having with an asset and multiple datapoints then map should be as follows:
+
+        .. code-block:: JSON
+
+            {
+                "sinusoid": {
+                    "random": {
+                        "node": "ns=3;i=1017",
+                        "type": "Float"
+                    },
+                    "sawtooth": {
+                        "node": "ns=3;i=1018",
+                        "type": "Double"
+                    }
+                }
+            }
+
+        - sinusoid is an asset name
+        - random and sawtooth are the datapoints name
+
+      c) When reading block is having with multiple assets and single datapoint then map should be as follows:
+
+        .. code-block:: JSON
+
+            {
+                "sensorDevice": {
+                    "name": {
+                        "node": "NodeId ns=3;i=1019",
+                        "type": "String"
+                    }
+                },
+                "sensorTag": {
+                    "green_light": {
+                        "node": "NodeId ns=3;i=1008",
+                        "type": "Boolean"
+                    }
+                }
+            }
+
+        - sensorDevice and sensorTag are the assets name
+        - name and green_light are the datapoints name
+
       - **Source**: The source of the data to be sent, this may be the *readings* or *statistics* data.
 
 The OPC UA Security tab contains a set of configuration items that is used for setting the security between the client and the OPC UA Server.
@@ -84,19 +128,19 @@ The OPC UA Security tab contains a set of configuration items that is used for s
 | |opcuaclient_security| |
 +------------------------+
 
-  - **Security Mode**: Specify the OPC/UA security mode that will be used to communicate with the OPC/UA server.
+  - **Security Mode**: Specify the OPC UA security mode that will be used to communicate with the OPC UA server.
 
     +-----------------+
     | |security_mode| |
     +-----------------+
 
-  - **Security Policy**: Specify the OPC/UA security policy that will be used to communicate with the OPC/UA server.
+  - **Security Policy**: Specify the OPC UA security policy that will be used to communicate with the OPC UA server.
 
     +-------------------+
     | |security_policy| |
     +-------------------+
 
-  - **User Authentication Mode**: Specify the user authentication mode that will be used when authenticating the connection to the OPC/UA server.
+  - **User Authentication Mode**: Specify the user authentication mode that will be used when authenticating the connection to the OPC UA server.
 
     +----------------------------+
     | |user_authentication_mode| |
@@ -106,14 +150,16 @@ The OPC UA Security tab contains a set of configuration items that is used for s
 
   - **Password**: Specify the password to use for authentication. This is only used if the *User Authentication Mode* is set to *Username And Password*.
 
-  - **Server Public Certificate**: (Optional) The name of the public certificate of the OPC/UA server specified in the *OPCUA Server URL*. This must either be a DER or PEM format certificate file.
+  - **Server Public Certificate**: (Optional) The name of the public certificate of the OPC UA server specified in the *OPC UA Server URL*. This must either be a DER or PEM format certificate file.
 
-  - **Client Public Certificate**: The name of the public certificate of the OPC/UA client application, that is, this plugin. This must either be a DER or PEM format certificate file.
+  - **Client Public Certificate**: The name of the public certificate of the OPC UA client application, that is, this plugin. This must either be a DER or PEM format certificate file.
 
   - **Client Private Key**: The name of the private key of the client application, that is, the private key the plugin will use. This must be a PEM format key file.
 
-  - **Client Private Passphrase Key**: (Optional) The passphrase of the private key of the client application.
+  - **Client Private Passphrase Key**: If the private key has a passphrase, enter it here. Otherwise leave it blank.
 
+.. note::
+    For all certificates and keys, you must include the file extension (myclientcert.der or myclientkey.pem). Do not include the file's directory name.
 
 - Click *Next*
 
@@ -125,13 +171,14 @@ The OPC UA Security tab contains a set of configuration items that is used for s
 Certificate Management
 ----------------------
 
-Typically the Certificate Authorities certificate is retrieved and uploaded to the Fledge Certificate Store along with the certificate from the OPC/UA server that has been signed by that Certificate Authority. A public/private key pair must also be created for the plugin and signed by the Certificate Authority. These are uploaded to the Fledge Certificate Store.
+Typically the Certificate Authorities certificate is retrieved and uploaded to the Fledge Certificate Store along with the certificate from the OPC UA server that has been signed by that Certificate Authority. A public/private key pair must also be created for the plugin and signed by the Certificate Authority. These are uploaded to the Fledge Certificate Store.
+For this plugin to work, they are not signed by a Certificate Authority. The system manager **must** copy the server certificate to the Fledge Certificate Store and the client certificate to the server's trusted certificate store.
 
 |OpenSSL| may be used to generate and convert the keys and certificates required.
-An example to |generate_certificate| to do this is available as part of the underlying |FreeOpcUa|.
+An example to |generate_certificate| to do this is available as part of the underlying |FreeOpcUa|. Copy the ssl.conf file in this example to your own system when using the OpenSSL commands below to generate certificates.
 
 .. note::
-    subjectAltName should be same as your OPCUA server Application URI.
+    subjectAltName **must** include your OPC UA server Application URI. This URI can be created in the client certificate by setting the value of the URI token in subjectAltName in the ssl.conf file.
 
 Use the OpenSSL command-line utility to generate the certificate and key files to the formats needed for the Plugin.
 
@@ -145,9 +192,9 @@ Use the OpenSSL command-line utility to generate the certificate and key files t
 
 Importing the Certificate and Key Files
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-You can either use GUI or manually to upload the certificates at right place.
+You can either use Fledge GUI or manually to upload the certificates at right place.
 
-a) via GUI (Recommended way)
+a) Using the Fledge GUI (Recommended way)
 
 - Launch the Fledge GUI.
 - Navigate to the Certificate Store.
@@ -165,7 +212,7 @@ a) via GUI (Recommended way)
 
 And for the OPC UA server certificate, enter the server certificate file name in the *Certificate* portion of the Import dialog and then click *Import*.
 
-b) via Manually
+b) Manually
 
-- Copy the certificates and place in the `$FLEDGE_DATA/etc/certs/` or `$FLEDGE_ROOT/data/etc/certs/` directory. And if certificate in PEM format then place in the `$FLEDGE_DATA/etc/certs/pem/` or `$FLEDGE_ROOT/data/etc/certs/pem/` directory
+- Copy the certificates and place in the `$FLEDGE_DATA/etc/certs/` or `$FLEDGE_ROOT/data/etc/certs/` directory. If the certificate is in PEM format, place it in the `$FLEDGE_DATA/etc/certs/pem/` or `$FLEDGE_ROOT/data/etc/certs/pem/` directory.
 - Copy the key and place in the `$FLEDGE_DATA/etc/certs/` or `$FLEDGE_ROOT/data/etc/certs/` directory.

@@ -334,7 +334,7 @@ class OpcuaClientNorthPlugin(object):
     def _value_to_variant(self, value, type_):
         type_ = type_.strip().lower()
 
-        if type_ == "bool":
+        if type_ in ("bool", "boolean"):
             return self._value_to_variant_type(value, self._bool, ua.VariantType.Boolean)
         elif type_ == "sbyte":
             return self._value_to_variant_type(value, int, ua.VariantType.SByte)
