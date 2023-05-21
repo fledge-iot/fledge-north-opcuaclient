@@ -171,8 +171,8 @@ The OPC UA Security tab contains a set of configuration items that is used for s
 Certificate Management
 ----------------------
 
-Typically the Certificate Authorities certificate is retrieved and uploaded to the Fledge Certificate Store along with the certificate from the OPC UA server that has been signed by that Certificate Authority. A public/private key pair must also be created for the plugin and signed by the Certificate Authority. These are uploaded to the Fledge Certificate Store.
-For this plugin to work, they are not signed by a Certificate Authority. The system manager **must** copy the server certificate to the Fledge Certificate Store and the client certificate to the server's trusted certificate store.
+Typically a Certificate Authority issues a client certificate and private key for the plugin which are imported into the Fledge Certificate Store along with a certificate from the OPC UA server.
+It is also possible to use self-signed certificates. In all cases, the system manager **must** copy the server certificate to the Fledge Certificate Store and the client certificate to the server's trusted certificate store. Do not copy the client private key to any other system.
 
 |OpenSSL| may be used to generate and convert the keys and certificates required.
 An example to |generate_certificate| to do this is available as part of the underlying |FreeOpcUa|. Copy the ssl.conf file in this example to your own system when using the OpenSSL commands below to generate certificates.
