@@ -163,6 +163,12 @@ _DEFAULT_CONFIG = {
 
 
 def plugin_info():
+    """Used only once when call will be made to a plugin
+    Args:
+
+    Returns:
+        Information about the plugin including the configuration for the plugin
+    """
     return {
         'name': 'OPC UA Client',
         'version': '2.1.0',
@@ -173,12 +179,29 @@ def plugin_info():
 
 
 def plugin_init(data):
+    """Used for initialization of a plugin
+    Args:
+        data: Plugin configuration
+    Returns:
+        Dictionary of a Plugin configuration
+    """
     config_data = deepcopy(data)
-    config_data['opcua_client'] = OpcuaClientNorthPlugin(config=config_data)
+    config_data['opcua_client'] = AsyncOpcuaClient(config=config_data)
     return config_data
 
 
 async def plugin_send(handle, payload, stream_id):
+    """Used to send the readings block to the configured destination
+    Args:
+        handle: An object which is returned by plugin_init
+        payload: A list of readings block
+        stream_id: An integer that uniquely identifies the connection from Fledge instance to the destination system
+    Returns:
+          Tuple which consists of
+          - A Boolean that indicates if any data has been sent
+          - The object id of the last reading which has been sent
+          - Total number of readings which has been sent to the configured destination
+    """
     try:
         opcua_client = handle['opcua_client']
         is_data_sent, new_last_object_id, num_sent = await opcua_client.send_payloads(payload)
@@ -189,7 +212,14 @@ async def plugin_send(handle, payload, stream_id):
 
 
 def plugin_shutdown(handle):
-    _LOGGER.info("{} plugin shutting down...".format(handle['plugin']['value']))
+    """Used when plugin is no longer required and will be final call to the plugin
+    Args:
+        handle: An object which is returned by plugin_init
+    Returns:
+        None
+    """
+    opcua_client = handle['opcua_client']
+    opcua_client.disconnect()
     handle['opcua_client'] = None
 
 
@@ -197,13 +227,14 @@ def plugin_reconfigure():
     pass
 
 
-class OpcuaClientNorthPlugin(object):
+class AsyncOpcuaClient(object):
 
-    __slots__ = ['event_loop', 'name', 'map', 'url', 'user_authentication_mode', 'username', 'password',
+    __slots__ = ['client', 'event_loop', 'name', 'map', 'url', 'user_authentication_mode', 'username', 'password',
                  'security_mode', 'security_policy', 'certs_dir', 'server_certificate', 'client_certificate',
                  'client_private_key', 'client_private_key_passphrase']
 
     def __init__(self, config):
+        self.client = None
         self.event_loop = asyncio.get_event_loop()
         self.name = config["plugin"]["value"]
         self.map = config["map"]["value"]
@@ -231,9 +262,7 @@ class OpcuaClientNorthPlugin(object):
         return self.__repr__()
 
     async def send_payloads(self, payloads):
-        is_data_sent = False
-        last_object_id = 0
-        num_sent = 0
+        is_data_sent, last_object_id, num_sent = False, 0, 0
         try:
             _LOGGER.debug('payloads size: {}'.format(len(payloads)))
             nodes = []
@@ -269,71 +298,15 @@ class OpcuaClientNorthPlugin(object):
 
     async def _write_values_to_nodes(self, nodes, values):
         """Write values to mulitple nodes in one call"""
-
-        async def _create_client_connection():
-            client = Client(url=self.url)
-            client.name = client.description = "Python based fledge-north-{} plugin".format(self.name)
-            valid_cert_extensions = ('.der', '.pem')
-            if self.user_authentication_mode == "Username And Password":
-                client.set_user(self.username)
-                client.set_password(self.password)
-            if self.security_mode != "None" and self.security_policy != "None":
-                server_certificate = None
-                certificate = ""
-                private_key = ""
-                if self.server_certificate:
-                    if not self.server_certificate.endswith(valid_cert_extensions):
-                        _LOGGER.warning("Server certificate must be either in DER or PEM format.")
-                    else:
-                        cert_path = "{}pem/".format(self.certs_dir) if str(self.server_certificate).endswith(
-                            '.pem') else self.certs_dir
-                        server_certificate = "{}{}".format(cert_path, self.server_certificate)
-                if self.client_certificate:
-                    if not self.client_certificate.endswith(valid_cert_extensions):
-                        _LOGGER.warning("Client certificate must be either in DER or PEM format.")
-                    else:
-                        cert_path = "{}pem/".format(self.certs_dir) if str(self.client_certificate).endswith(
-                            '.pem') else self.certs_dir
-                        certificate = "{}{}".format(cert_path, self.client_certificate)
-                else:
-                    _LOGGER.warning("Client certificate cannot be empty and must be either in DER or PEM format.")
-                if self.client_private_key:
-                    if not str(self.client_private_key).endswith('.pem'):
-                        _LOGGER.warning("Private key must be in PEM format.")
-                    else:
-                        private_key = "{}{}".format(self.certs_dir, self.client_private_key)
-                else:
-                    _LOGGER.warning("Private Key cannot be empty and must be in PEM format.")
-                passphrase = self.client_private_key_passphrase if self.client_private_key_passphrase else None
-                mode, policy = self._get_mode_and_policy()
-                _LOGGER.debug(self.__str__())
-                # Find Application URI as it requires to match the URI in the certificate
-                servers = await client.connect_and_find_servers()
-                # _LOGGER.debug("Servers list: {}".format(servers))
-                app_uri = [s.ApplicationUri for s in servers]
-                _LOGGER.debug("Application URI: {}".format(app_uri[0]))
-                client.application_uri = app_uri[0]
-                await client.set_security(policy=policy, certificate=certificate, private_key=private_key,
-                                          private_key_password=passphrase, server_certificate=server_certificate,
-                                          mode=mode)
-            return client
-
-        def convert_node_identifier(cl):
-            ids = []
-            for n in nodes:
-                ids.append(cl.get_node(n))
-            return ids
-
-        op_client = await _create_client_connection()
-        node_identifiers = convert_node_identifier(op_client)
-        # _LOGGER.debug("Nodes: {}".format(node_identifiers))
-        # _LOGGER.debug("Node Values to write: {}".format(values))
-        async with op_client:
-            await op_client.write_values(node_identifiers, values)
+        if self.client is None:
+            await self.connect()
+        node_identifiers = self._convert_node_identifier(nodes)
+        _LOGGER.debug("Nodes: {}".format(node_identifiers))
+        _LOGGER.debug("Node Values to write: {}".format(values))
+        asyncio.ensure_future(self.client.write_values(node_identifiers, values))
 
     def _value_to_variant(self, value, type_):
         type_ = type_.strip().lower()
-
         if type_ in ("bool", "boolean"):
             return self._value_to_variant_type(value, self._bool, ua.VariantType.Boolean)
         elif type_ == "sbyte":
@@ -378,22 +351,13 @@ class OpcuaClientNorthPlugin(object):
             return self._value_to_variant_type(value, ua.LocalizedText, ua.VariantType.LocalizedText)
 
     def _value_to_variant_type(self, value, ptype, varianttype=None):
-        # FIXME:
-        # if isinstance(value, (list, tuple)
-        if isinstance(value, list):
-            value = [ptype(i) for i in value]
-        else:
-            value = ptype(value)
-
-        if varianttype:
-            return ua.Variant(value, varianttype)
-        else:
-            return ua.Variant(value)
+        value = [ptype(i) for i in value] if isinstance(value, list) else ptype(value)
+        return ua.Variant(value, varianttype) if varianttype else ua.Variant(value)
 
     def _bool(self, value):
-        if value in (True, "True", "true", 1, "1"):
+        if value in (True, "True", "true", "On", "on", 1, "1"):
             return True
-        if value in (False, "False", "false", 0, "0"):
+        if value in (False, "False", "false", "Off", "off", 0, "0"):
             return False
         else:
             return bool(value)
@@ -417,4 +381,65 @@ class OpcuaClientNorthPlugin(object):
             policy = SecurityPolicyBasic256
         mode = ua.MessageSecurityMode.Sign if self.security_mode == "Sign" else ua.MessageSecurityMode.SignAndEncrypt
         return mode, policy
+
+    async def _create_client_connection(self):
+        client = Client(url=self.url)
+        plugin_name = "fledge-north-{}".format(self.name)
+        client.name = "Python based {}".format(plugin_name)
+        client.description = plugin_name
+        valid_cert_extensions = ('.der', '.pem')
+        if self.user_authentication_mode == "Username And Password":
+            client.set_user(self.username)
+            client.set_password(self.password)
+        if self.security_mode != "None" and self.security_policy != "None":
+            server_certificate = None
+            certificate = ""
+            private_key = ""
+            if self.server_certificate:
+                if not self.server_certificate.endswith(valid_cert_extensions):
+                    _LOGGER.warning("Server certificate must be either in DER or PEM format.")
+                else:
+                    cert_path = "{}pem/".format(self.certs_dir) if str(self.server_certificate).endswith(
+                        '.pem') else self.certs_dir
+                    server_certificate = "{}{}".format(cert_path, self.server_certificate)
+            if self.client_certificate:
+                if not self.client_certificate.endswith(valid_cert_extensions):
+                    _LOGGER.warning("Client certificate must be either in DER or PEM format.")
+                else:
+                    cert_path = "{}pem/".format(self.certs_dir) if str(self.client_certificate).endswith(
+                        '.pem') else self.certs_dir
+                    certificate = "{}{}".format(cert_path, self.client_certificate)
+            else:
+                _LOGGER.warning("Client certificate cannot be empty and must be either in DER or PEM format.")
+            if self.client_private_key:
+                if not str(self.client_private_key).endswith('.pem'):
+                    _LOGGER.warning("Private key must be in PEM format.")
+                else:
+                    private_key = "{}{}".format(self.certs_dir, self.client_private_key)
+            else:
+                _LOGGER.warning("Private Key cannot be empty and must be in PEM format.")
+            passphrase = self.client_private_key_passphrase if self.client_private_key_passphrase else None
+            mode, policy = self._get_mode_and_policy()
+            _LOGGER.debug(self.__str__())
+            # Find Application URI as it requires to match the URI in the certificate
+            servers = await client.connect_and_find_servers()
+            # _LOGGER.debug("Servers list: {}".format(servers))
+            app_uri = [s.ApplicationUri for s in servers]
+            _LOGGER.debug("Application URI: {}".format(app_uri[0]))
+            client.application_uri = app_uri[0]
+            await client.set_security(policy=policy, certificate=certificate, private_key=private_key,
+                                      private_key_password=passphrase, server_certificate=server_certificate,
+                                      mode=mode)
+        return client
+
+    def _convert_node_identifier(self, nodes):
+        return [self.client.get_node(n) for n in nodes]
+
+    async def connect(self):
+        self.client = await self._create_client_connection()
+        await self.client.connect()
+
+    def disconnect(self):
+        if self.client is not None:
+            self.event_loop.run_until_complete(self.client.disconnect())
 
