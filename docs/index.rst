@@ -105,13 +105,13 @@ On this tab a number of configuration parameters are available;
             {
                 "sensorDevice": {
                     "name": {
-                        "node": "NodeId ns=3;i=1019",
+                        "node": "ns=3;i=1019",
                         "type": "String"
                     }
                 },
                 "sensorTag": {
                     "green_light": {
-                        "node": "NodeId ns=3;i=1008",
+                        "node": "ns=3;i=1008",
                         "type": "Boolean"
                     }
                 }
