@@ -97,6 +97,9 @@ class AsyncClient(object):
             _logger.error(err, "Data could not be sent as bad status code is encountered.")
         except Exception as ex:
             _logger.exception(ex, "Failed during write value to OPCUA node.")
+            if self.client:
+                await self.client.disconnect()
+            self.client = None
         return is_data_sent, last_object_id, num_sent
 
     async def _create_client_connection(self):
