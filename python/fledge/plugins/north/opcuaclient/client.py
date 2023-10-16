@@ -91,7 +91,7 @@ class AsyncClient(object):
                     _logger.debug("{} asset code is missing in map configuration.".format(asset_code))
             if nodes and node_values:
                 await self._write_values_to_nodes(nodes, node_values)
-                num_sent += len(nodes)
+                num_sent += len(payloads)
                 is_data_sent = True
         except ua.uaerrors.UaStatusCodeError as err:
             _logger.error(err, "Data could not be sent as bad status code is encountered.")

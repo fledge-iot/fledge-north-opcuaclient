@@ -20,6 +20,11 @@
 
     <a href="https://github.com/FreeOpcUa/opcua-asyncio">FreeOpcUa python library</a>
 
+.. |filter-asset| raw:: html
+
+   <a href="../fledge-filter-asset/index.html">Asset Filter</a>
+
+
 
 North OPC UA Client
 ===================
@@ -216,3 +221,16 @@ b) Manually
 
 - Copy the certificates and place in the `$FLEDGE_DATA/etc/certs/` or `$FLEDGE_ROOT/data/etc/certs/` directory. If the certificate is in PEM format, place it in the `$FLEDGE_DATA/etc/certs/pem/` or `$FLEDGE_ROOT/data/etc/certs/pem/` directory.
 - Copy the key and place in the `$FLEDGE_DATA/etc/certs/` or `$FLEDGE_ROOT/data/etc/certs/` directory.
+
+
+Known Issue
+~~~~~~~~~~~
+
+You may see the Egress counter for the corresponding service will still include all the readings that have been pulled by the north service.
+
+There is an interesting case, we would normally not remove readings in the north plugin, but rather in a filter.
+
+.. note::
+    If we need to selectively sends readings out based on its configuration, it is recommended to attach a filter on the north service, to exclude the readings that are not going to be sent out.
+    One may use a filter like |filter-asset|, to do such filtering beforehand.
+
