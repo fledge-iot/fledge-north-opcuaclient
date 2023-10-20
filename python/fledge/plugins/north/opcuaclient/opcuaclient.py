@@ -19,24 +19,20 @@
 # ************************************************************************
 
 
-""" OPC UA Client North plugin """
+"""OPC UA Client North plugin"""
 
 import asyncio
 import json
-import logging
-from datetime import datetime
 from copy import deepcopy
 
-from asyncua import Client, ua
-from fledge.common import logger
+from fledge.plugins.north.opcuaclient.client import _logger, AsyncClient
 
+_LOGGER = _logger
 
 __author__ = "Sebastian Kropatschek"
 __copyright__ = "Copyright (c) 2021 Austrian Center for Digital Production (ACDP)"
 __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
-
-_LOGGER = logger.setup(__name__, level=logging.INFO)
 
 
 _DEFAULT_CONFIG = {
@@ -65,20 +61,108 @@ _DEFAULT_CONFIG = {
         'displayName': 'Map'
     },
     "source": {
-         "description": "Source of data to be sent on the stream. May be either readings or statistics.",
+         "description": "Source of data to be sent on the stream. May be either readings or statistics",
          "type": "enumeration",
          "default": "readings",
          "options": ["readings", "statistics"],
          'order': '3',
          'displayName': 'Source'
+    },
+    "security_mode": {
+        "description": "Security Mode to use while connecting to OPCUA server",
+        "type": "enumeration",
+        "default": "None",
+        "options": ["None", "Sign", "SignAndEncrypt"],
+        'order': '4',
+        'displayName': 'Security Mode',
+        "group": "OPC UA Security"
+    },
+    "security_policy": {
+        "description": "Security Policy to use while connecting to OPCUA server",
+        "type": "enumeration",
+        "default": "None",
+        "options": ["None", "Basic128Rsa15", "Basic256", "Basic256Sha256", "Aes128Sha256RsaOaep"],
+        'order': '5',
+        'displayName': 'Security Policy',
+        "group": "OPC UA Security",
+        "validity": "security_mode != \"None\""
+    },
+    "user_authentication_mode": {
+        "description": "User authentication policy to use while connecting to OPCUA server",
+        "type": "enumeration",
+        "options": ["Anonymous", "Username And Password"],  # "Certificate", "IssuedToken"
+        "displayName": "User Authentication Mode",
+        "default": "Anonymous",
+        "order": "6",
+        "group": "OPC UA Security"
+    },
+    "username": {
+        "description": "Username for the connection",
+        "type": "string",
+        "default": "",
+        'order': '7',
+        'displayName': 'Username',
+        "group": "OPC UA Security",
+        "validity": "user_authentication_mode == \"Username And Password\""
+    },
+    "password": {
+        "description": "User Password for the connection.",
+        "type": "password",
+        "default": "",
+        'order': '8',
+        'displayName': 'Password',
+        "group": "OPC UA Security",
+        "validity": "user_authentication_mode == \"Username And Password\""
+    },
+    "server_certificate": {
+        "description": "Server certificate file in DER or PEM format",
+        "type": "string",
+        "default": "",
+        'order': '9',
+        'displayName': 'Server Public Certificate',
+        "group": "OPC UA Security",
+        "validity": "security_mode != \"None\" && security_policy != \"None\""
+    },
+    "client_certificate": {
+        "description": "Client certificate file either in DER or PEM format",
+        "type": "string",
+        "default": "",
+        'order': '10',
+        'displayName': 'Client Public Certificate',
+        "group": "OPC UA Security",
+        "validity": "security_mode != \"None\" && security_policy != \"None\""
+    },
+    "client_private_key": {
+        "description": "Client private key file in PEM format",
+        "type": "string",
+        "default": "",
+        'order': '11',
+        'displayName': 'Client Private Key',
+        "group": "OPC UA Security",
+        "validity": "security_mode != \"None\" && security_policy != \"None\""
+    },
+    "client_private_key_passphrase": {
+        "description": "Passphrase for client private key",
+        "type": "password",
+        "default": "",
+        'order': '12',
+        'displayName': 'Client Private Passphrase Key',
+        "group": "OPC UA Security",
+        "validity": "security_mode != \"None\" && security_policy != \"None\""
     }
 }
 
 
 def plugin_info():
+    """Used only once when call will be made to a plugin
+    Args:
+
+    Returns:
+        Information about the plugin including the configuration for the plugin
+    """
     return {
         'name': 'OPC UA Client',
-        'version': '2.1.0',
+        'version': '2.2.0',
         'type': 'north',
         'interface': '1.0',
         'config': _DEFAULT_CONFIG
@@ -86,142 +170,50 @@ def plugin_info():
 
 
 def plugin_init(data):
+    """Used for initialization of a plugin
+    Args:
+        data: Plugin configuration
+    Returns:
+        Dictionary of a Plugin configuration
+    """
     config_data = deepcopy(data)
-    config_data['opcua_client'] = OpcuaClientNorthPlugin(config=config_data)
+    config_data['client'] = AsyncClient(config=config_data)
     return config_data
 
 
 async def plugin_send(handle, payload, stream_id):
+    """Used to send the readings block to the configured destination
+    Args:
+        handle: An object which is returned by plugin_init
+        payload: A list of readings block
+        stream_id: An integer that uniquely identifies the connection from Fledge instance to the destination system
+    Returns:
+          Tuple which consists of
+          - A Boolean that indicates if any data has been sent
+          - The object id of the last reading which has been sent
+          - Total number of readings which has been sent to the configured destination
+    """
     try:
-        opcua_client = handle['opcua_client']
-        is_data_sent, new_last_object_id, num_sent = await opcua_client.send_payloads(payload)
+        client = handle['client']
+        is_data_sent, new_last_object_id, num_sent = await client.send_payloads(payload)
     except asyncio.CancelledError:
         pass
     else:
         return is_data_sent, new_last_object_id, num_sent
 
 
-def plugin_shutdown(data):
-    pass
+def plugin_shutdown(handle):
+    """Used when plugin is no longer required and will be final call to the plugin
+    Args:
+        handle: An object which is returned by plugin_init
+    Returns:
+        None
+    """
+    client = handle['client']
+    client.disconnect()
+    handle['client'] = None
 
 
 def plugin_reconfigure():
     pass
 
-
-class OpcuaClientNorthPlugin(object):
-
-    def __init__(self, config):
-        self.event_loop = asyncio.get_event_loop()
-        self.config = config
-
-    async def send_payloads(self, payloads):
-        is_data_sent = False
-        last_object_id = 0
-        num_sent = 0
-
-        try:
-            _LOGGER.debug('payloads size: {}'.format(len(payloads)))
-            _map = self.config['map']['value']
-            _LOGGER.debug('map: {}'.format(_map))
-            url = self.config["url"]["value"]
-            for p in payloads:
-                asset_code = p['asset_code']
-                last_object_id = p["id"]
-                if asset_code in _map:
-                    for datapoint, item in _map[asset_code].items():
-                        if not (item.get('node') is None) and not (item.get('type') is None):
-                            if datapoint in p['reading']:
-                                read = {"value": p['reading'][datapoint], "type": item.get('type'),
-                                        "node": item.get('node'), "timestamp": p['user_ts']}
-                                await self._send_payloads(url, read)
-                            else:
-                                _LOGGER.debug("{} datapoint is missing in map configuration.".format(datapoint))
-                        else:
-                            _LOGGER.debug("For {} datapoint, either node or type KV pair is missing "
-                                          "in map configuration.".format(datapoint))
-                else:
-                    _LOGGER.debug("{} asset code is missing in map configuration.".format(asset_code))
-                num_sent += 1
-            is_data_sent = True
-        except ua.uaerrors.UaStatusCodeError as err:
-            _LOGGER.error("Data could not be sent, %s", str(err))
-        except Exception as ex:
-            _LOGGER.exception("Data could not be sent, %s", str(ex))
-        return is_data_sent, last_object_id, num_sent
-
-    async def _send_payloads(self, url, payload_block):
-        """ send a list of block payload """
-        async with Client(url=url) as client:
-            var = client.get_node(payload_block["node"])
-            user_ts = datetime.strptime(payload_block["timestamp"], '%Y-%m-%d %H:%M:%S.%f%z')
-            data_value = ua.DataValue(Value=self._value_to_variant(payload_block["value"], payload_block["type"]),
-                                      SourceTimestamp=user_ts)
-            await var.write_value(data_value)
-
-    def _value_to_variant(self, value, type_):
-        type_ = type_.strip().lower()
-
-        if type_ == "bool":
-            return self._value_to_variant_type(value, self._bool, ua.VariantType.Boolean)
-        elif type_ == "sbyte":
-            return self._value_to_variant_type(value, int, ua.VariantType.SByte)
-        elif type_ == "byte":
-            return self._value_to_variant_type(value, int, ua.VariantType.Byte)
-        elif type_ == "uint16":
-            return self._value_to_variant_type(value, int, ua.VariantType.UInt16)
-        elif type_ == "uint32":
-            return self._value_to_variant_type(value, int, ua.VariantType.UInt32)
-        elif type_ == "uint64":
-            return self._value_to_variant_type(value, int, ua.VariantType.UInt64)
-        elif type_ == "int16":
-            return self._value_to_variant_type(value, int, ua.VariantType.Int16)
-        elif type_ == "int32":
-            return self._value_to_variant_type(value, int, ua.VariantType.Int32)
-        elif type_ == "int64":
-            return self._value_to_variant_type(value, int, ua.VariantType.Int64)
-        elif type_ == "float":
-            return self._value_to_variant_type(value, float, ua.VariantType.Float)
-        elif type_ == "double":
-            return self._value_to_variant_type(value, float, ua.VariantType.Double)
-        elif type_ == "string":
-            return self._value_to_variant_type(value, str, ua.VariantType.String)
-        # elif type_ == "datetime":
-        #    raise NotImplementedError
-        # elif type_ == "Guid":
-        #    return self._value_to_variant_type(value, bytes, ua.VariantType.Guid)
-        elif type_ == "ByteString":
-            return self._value_to_variant_type(value, bytes, ua.VariantType.ByteString)
-        # elif type_ == "xml":
-        #    return self._value_to_variant_type(value, str, ua.VariantType.XmlElement)
-        # elif type_ == "nodeid":
-        #    return self._value_to_variant_type(value, ua.NodeId.from_string, ua.VariantType.NodeId)
-        # elif type_ == "expandednodeid":
-        #    return self._value_to_variant_type(value, ua.ExpandedNodeId.from_string, ua.VariantType.ExpandedNodeId)
-        # elif type_ == "statuscode":
-        #    return self._value_to_variant_type(value, int, ua.VariantType.StatusCode)
-        # elif type_ in ("qualifiedname", "browsename"):
-        #    return self._value_to_variant_type(value, ua.QualifiedName.from_string, ua.VariantType.QualifiedName)
-        elif type_ == "LocalizedText":
-            return self._value_to_variant_type(value, ua.LocalizedText, ua.VariantType.LocalizedText)
-
-    def _value_to_variant_type(self, value, ptype, varianttype=None):
-        # FIXME:
-        # if isinstance(value, (list, tuple)
-        if isinstance(value, list):
-            value = [ptype(i) for i in value]
-        else:
-            value = ptype(value)
-
-        if varianttype:
-            return ua.Variant(value, varianttype)
-        else:
-            return ua.Variant(value)
-
-    def _bool(self, value):
-        if value in (True, "True", "true", 1, "1"):
-            return True
-        if value in (False, "False", "false", 0, "0"):
-            return False
-        else:
-            return bool(value)
