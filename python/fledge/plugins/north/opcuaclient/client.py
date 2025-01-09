@@ -5,6 +5,7 @@ from datetime import datetime
 from asyncua import Client, ua
 from asyncua.crypto.security_policies import SecurityPolicyBasic128Rsa15, SecurityPolicyBasic256, \
     SecurityPolicyBasic256Sha256, SecurityPolicyAes128Sha256RsaOaep
+from urllib.parse import urlparse
 
 from fledge.common.common import _FLEDGE_ROOT, _FLEDGE_DATA
 from fledge.common import logger
@@ -96,9 +97,13 @@ class AsyncClient(object):
                 else:
                     _logger.debug("{} asset code is missing in map configuration.".format(asset_code))
             if nodes and node_values:
-                await self._write_values_to_nodes(nodes, node_values)
-                num_sent += len(payloads)
-                is_data_sent = True
+                if await self._write_values_to_nodes(nodes, node_values):
+                    num_sent += len(payloads)
+                    is_data_sent = True
+                else:
+                    raise Exception
+        except asyncio.exceptions.TimeoutError:
+            pass
         except ua.uaerrors.UaStatusCodeError as err:
             _logger.error(err, "Data could not be sent as bad status code is encountered.")
         except Exception as ex:
@@ -171,9 +176,40 @@ class AsyncClient(object):
         if self.client is not None:
             self.event_loop.run_until_complete(self.client.disconnect())
 
-    async def check_server_reachability(self):
+    async def check_node_exists(self, nodes: list) -> bool:
+        """Checks if a node exists in the server by attempting to read it.
+
+        Args:
+            nodes (list): The NodeId of the nodes to check (e.g., ['ns=3;i=1010']).
+
+        Returns:
+            bool: True if the node exists, False otherwise.
+
+        Raises:
+            BadNodeIdUnknown: If the node does not exist in the server.
+            Exception: For unexpected errors such as network issues or timeouts.
+        """
+        unique_node_ids = list(set(nodes))
+        for node_id in unique_node_ids:
+            try:
+                node = self.client.get_node(node_id)
+                await node.read_attribute(ua.AttributeIds.NodeId)
+                return True
+            except asyncio.exceptions.TimeoutError:
+                return True
+            except ua.uaerrors._auto.BadNodeIdUnknown:
+                _logger.error("Node with ID {} does not exist.".format(node_id))
+                return False
+            except Exception as ex:
+                _logger.error("Read attribute of Node with ID {} is failed. Error: {}".format(node_id, ex))
+                return False
+
+    async def check_server_reachability(self) -> bool:
+        """Check if the server is reachable
+        Returns:
+            bool: True if the server is reachable, False otherwise.
+        """
         try:
-            from urllib.parse import urlparse
             parsed_url = urlparse(self.url)
             host = parsed_url.hostname
             port = parsed_url.port
@@ -194,6 +230,8 @@ class AsyncClient(object):
         """Write values to mulitple nodes in one call"""
         if self.client is None:
             await self.connect()
+        if self.client and not await self.check_node_exists(nodes):
+            return False
         node_identifiers = self._convert_node_identifier(nodes)
         _logger.debug("Nodes: {}".format(node_identifiers))
         _logger.debug("Node Values to write: {}".format(values))
@@ -204,9 +242,12 @@ class AsyncClient(object):
             # Also asyncua do not allow compression
             await asyncio.wait_for(task, timeout=0.5)
             # asyncio.ensure_future(self.client.write_values(node_identifiers, values))
+        except asyncio.exceptions.TimeoutError:
+            pass
         except Exception:
             # When there is an exception; mostly asyncio timeout error; we need to flush the callback map of UAClient
             self.client.uaclient.protocol._callbackmap.clear()
+        return True
 
     def _value_to_variant(self, value, type_):
         type_ = type_.strip().lower()
