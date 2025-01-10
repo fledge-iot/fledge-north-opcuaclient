@@ -1,5 +1,6 @@
 import os
 import asyncio
+import time
 
 from datetime import datetime
 from asyncua import Client, ua
@@ -23,7 +24,7 @@ class AsyncClient(object):
     """An async client to connect to an OPC-UA server."""
     __slots__ = ['client', 'event_loop', 'name', 'map', 'url', 'user_authentication_mode', 'username', 'password',
                  'security_mode', 'security_policy', 'certs_dir', 'server_certificate', 'client_certificate',
-                 'client_private_key', 'client_private_key_passphrase']
+                 'client_private_key', 'client_private_key_passphrase', 'last_error_time', 'error_interval']
 
     def __init__(self, config):
         """
@@ -47,6 +48,8 @@ class AsyncClient(object):
         self.client_certificate = config["client_certificate"]["value"]
         self.client_private_key = config["client_private_key"]["value"]
         self.client_private_key_passphrase = config["client_private_key_passphrase"]["value"]
+        self.last_error_time = 0
+        self.error_interval = 5 * 60  # Set the interval to 5 minutes (300 seconds)
 
     def __repr__(self):
         template = 'Async OPCUA client info <name={opcua.name}, url={opcua.url}, map={opcua.map}, ' \
@@ -72,7 +75,6 @@ class AsyncClient(object):
             is_reachable = await self.check_server_reachability()
             if not is_reachable:
                 msg = "Server at {} is unreachable".format(self.url)
-                _logger.error(msg)
                 raise Exception(msg)
 
             nodes = []
@@ -107,7 +109,11 @@ class AsyncClient(object):
         except ua.uaerrors.UaStatusCodeError as err:
             _logger.error(err, "Data could not be sent as bad status code is encountered.")
         except Exception as ex:
-            _logger.exception(ex, "Failed during write value to OPCUA node.")
+            current_time = time.time()
+            # Suppress errors - if minutes have passed since the last error
+            if current_time - self.last_error_time >= self.error_interval:
+                _logger.exception(ex, "Failed during write value to OPCUA node.")
+                self.last_error_time = current_time
             if self.client:
                 await self.client.disconnect()
             self.client = None
@@ -223,7 +229,7 @@ class AsyncClient(object):
             _logger.debug("Successfully connected to {}".format(self.url))
             return True
         except Exception as e:
-            _logger.error("Failed to connect to {} - {}".format(self.url, str(e)))
+            _logger.debug("Failed to connect to {} - {}".format(self.url, str(e)))
             return False
 
     async def _write_values_to_nodes(self, nodes, values):
