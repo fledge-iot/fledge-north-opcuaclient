@@ -68,6 +68,12 @@ class AsyncClient(object):
         is_data_sent, last_object_id, num_sent = False, 0, 0
         try:
             _logger.debug('payloads size: {}'.format(len(payloads)))
+            is_reachable = await self.check_server_reachability()
+            if not is_reachable:
+                msg = "Server at {} is unreachable".format(self.url)
+                _logger.error(msg)
+                raise Exception(msg)
+
             nodes = []
             node_values = []
             for p in payloads:
@@ -164,6 +170,25 @@ class AsyncClient(object):
         """Close session, secure channel and socket"""
         if self.client is not None:
             self.event_loop.run_until_complete(self.client.disconnect())
+
+    async def check_server_reachability(self):
+        try:
+            from urllib.parse import urlparse
+            parsed_url = urlparse(self.url)
+            host = parsed_url.hostname
+            port = parsed_url.port
+            if not host or not port:
+                _logger.error("Invalid URL: {}".format(self.url))
+                return False
+            _logger.debug("Attempting to connect to {}...".format(self.url))
+            reader, writer = await asyncio.open_connection(host, port)
+            writer.close()
+            await writer.wait_closed()
+            _logger.debug("Successfully connected to {}".format(self.url))
+            return True
+        except Exception as e:
+            _logger.error("Failed to connect to {} - {}".format(self.url, str(e)))
+            return False
 
     async def _write_values_to_nodes(self, nodes, values):
         """Write values to mulitple nodes in one call"""
