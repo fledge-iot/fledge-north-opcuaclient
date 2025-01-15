@@ -21,7 +21,7 @@ __version__ = "${VERSION}"
 
 
 class AsyncClient(object):
-    """An async client to connect to an OPC-UA server."""
+    """An async client to connect to an OPC-UA server"""
     __slots__ = ['client', 'event_loop', 'name', 'map', 'url', 'user_authentication_mode', 'username', 'password',
                  'security_mode', 'security_policy', 'certs_dir', 'server_certificate', 'client_certificate',
                  'client_private_key', 'client_private_key_passphrase', 'last_error_time', 'error_interval']
@@ -215,22 +215,35 @@ class AsyncClient(object):
         Returns:
             bool: True if the server is reachable, False otherwise.
         """
+        reader, writer = None, None
         try:
             parsed_url = urlparse(self.url)
+            # Handle OPC-UA specific URL scheme ('opc.tcp')
+            if parsed_url.scheme != 'opc.tcp':
+                _logger.error("Unsupported scheme in URL: {}".format(self.url))
+                return False
             host = parsed_url.hostname
             port = parsed_url.port
             if not host or not port:
                 _logger.error("Invalid URL: {}".format(self.url))
                 return False
-            _logger.debug("Attempting to connect to {}...".format(self.url))
+            # Open the connection explicitly
             reader, writer = await asyncio.open_connection(host, port)
-            writer.close()
-            await writer.wait_closed()
             _logger.debug("Successfully connected to {}".format(self.url))
             return True
-        except Exception as e:
-            _logger.debug("Failed to connect to {} - {}".format(self.url, str(e)))
+        except (OSError, asyncio.TimeoutError) as err:
+            _logger.debug("Network error while connecting to {}:{}".format(self.url, str(err)))
             return False
+        except Exception as ex:
+            _logger.debug("Failed to connect to {} - {}".format(self.url, str(ex)))
+            return False
+        finally:
+            # Ensuring the connection is closed properly, even if there's an error
+            if writer and not writer.is_closing():
+                writer.close()
+                await writer.wait_closed()
+            if reader:
+                reader.feed_eof()
 
     async def _write_values_to_nodes(self, nodes, values):
         """Write values to mulitple nodes in one call"""
@@ -247,9 +260,6 @@ class AsyncClient(object):
             # TODO: Timeout interval on the basis of payload block size
             # Also asyncua do not allow compression
             await asyncio.wait_for(task, timeout=0.5)
-            # asyncio.ensure_future(self.client.write_values(node_identifiers, values))
-        except asyncio.exceptions.TimeoutError:
-            pass
         except Exception:
             # When there is an exception; mostly asyncio timeout error; we need to flush the callback map of UAClient
             self.client.uaclient.protocol._callbackmap.clear()
