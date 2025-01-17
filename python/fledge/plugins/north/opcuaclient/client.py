@@ -20,6 +20,12 @@ __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
 
+class ServerConnectionError(Exception):
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+
 class AsyncClient(object):
     """An async client to connect to an OPC-UA server"""
     __slots__ = ['client', 'event_loop', 'name', 'map', 'url', 'user_authentication_mode', 'username', 'password',
@@ -75,7 +81,7 @@ class AsyncClient(object):
             is_reachable = await self.check_server_reachability()
             if not is_reachable:
                 msg = "Server at {} is unreachable".format(self.url)
-                raise Exception(msg)
+                raise ServerConnectionError(msg)
 
             nodes = []
             node_values = []
@@ -108,14 +114,20 @@ class AsyncClient(object):
             pass
         except ua.uaerrors.UaStatusCodeError as err:
             _logger.error(err, "Data could not be sent as bad status code is encountered.")
+        except ServerConnectionError as err:
+            current_time = time.time()
+            # Suppress errors - if minutes have passed since the last error
+            if current_time - self.last_error_time >= self.error_interval:
+                _logger.error(err)
+                self.last_error_time = current_time
+            await self.disconnect()
         except Exception as ex:
             current_time = time.time()
             # Suppress errors - if minutes have passed since the last error
             if current_time - self.last_error_time >= self.error_interval:
                 _logger.exception(ex, "Failed during write value to OPCUA node.")
                 self.last_error_time = current_time
-            if self.client:
-                await self.client.disconnect()
+            await self.disconnect()
             self.client = None
         return is_data_sent, last_object_id, num_sent
 
@@ -177,10 +189,11 @@ class AsyncClient(object):
         self.client = await self._create_client_connection()
         await self.client.connect()
 
-    def disconnect(self):
+    async def disconnect(self):
         """Close session, secure channel and socket"""
         if self.client is not None:
-            self.event_loop.run_until_complete(self.client.disconnect())
+            await self.client.disconnect()
+            self.client = None
 
     async def check_node_exists(self, nodes: list) -> bool:
         """Checks if a node exists in the server by attempting to read it.
