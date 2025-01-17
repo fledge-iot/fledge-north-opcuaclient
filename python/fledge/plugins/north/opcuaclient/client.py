@@ -195,6 +195,11 @@ class AsyncClient(object):
             await self.client.disconnect()
             self.client = None
 
+    def shutdown(self):
+        """Shutdown session"""
+        if self.client is not None:
+            self.event_loop.run_until_complete(self.disconnect())
+
     async def check_node_exists(self, nodes: list) -> bool:
         """Checks if a node exists in the server by attempting to read it.
 
