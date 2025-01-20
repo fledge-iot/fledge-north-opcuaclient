@@ -26,11 +26,16 @@ class ServerConnectionError(Exception):
         super().__init__(self.message)
 
 
+class NodeNotFoundOrAccessDeniedError(Exception):
+    pass
+
+
 class AsyncClient(object):
     """An async client to connect to an OPC-UA server"""
     __slots__ = ['client', 'event_loop', 'name', 'map', 'url', 'user_authentication_mode', 'username', 'password',
                  'security_mode', 'security_policy', 'certs_dir', 'server_certificate', 'client_certificate',
-                 'client_private_key', 'client_private_key_passphrase', 'last_error_time', 'error_interval']
+                 'client_private_key', 'client_private_key_passphrase', 'last_error_time', 'error_interval',
+                 'attribute_cache']
 
     def __init__(self, config):
         """
@@ -56,6 +61,7 @@ class AsyncClient(object):
         self.client_private_key_passphrase = config["client_private_key_passphrase"]["value"]
         self.last_error_time = 0
         self.error_interval = 5 * 60  # Set the interval to 5 minutes (300 seconds)
+        self.attribute_cache = {}
 
     def __repr__(self):
         template = 'Async OPCUA client info <name={opcua.name}, url={opcua.url}, map={opcua.map}, ' \
@@ -109,7 +115,7 @@ class AsyncClient(object):
                     num_sent += len(payloads)
                     is_data_sent = True
                 else:
-                    raise Exception
+                    raise NodeNotFoundOrAccessDeniedError
         except asyncio.exceptions.TimeoutError:
             pass
         except ua.uaerrors.UaStatusCodeError as err:
@@ -121,6 +127,12 @@ class AsyncClient(object):
                 _logger.error(err)
                 self.last_error_time = current_time
             await self.disconnect()
+        except NodeNotFoundOrAccessDeniedError as err:
+            current_time = time.time()
+            # Suppress errors - if minutes have passed since the last error
+            if current_time - self.last_error_time >= self.error_interval:
+                _logger.error(err)
+                self.last_error_time = current_time
         except Exception as ex:
             current_time = time.time()
             # Suppress errors - if minutes have passed since the last error
@@ -213,19 +225,43 @@ class AsyncClient(object):
             BadNodeIdUnknown: If the node does not exist in the server.
             Exception: For unexpected errors such as network issues or timeouts.
         """
+        _logger.debug("attribute_cache: {}".format(self.attribute_cache))
         unique_node_ids = list(set(nodes))
         for node_id in unique_node_ids:
             try:
+                if node_id in self.attribute_cache:
+                    continue
                 node = self.client.get_node(node_id)
-                await node.read_attribute(ua.AttributeIds.NodeId)
-                return True
+                attributes = await node.read_attributes([ua.AttributeIds.NodeId, ua.AttributeIds.AccessLevel])
+                if len(attributes) > 1:
+                    # Extract the AccessLevel value from the DataValue (it's wrapped in a Variant)
+                    access_level_variant = attributes[1].Value
+                    access_level_value = access_level_variant.Value
+                    if access_level_value is not None:
+                        # Determine the access rights based on the bitmask & if the 0x2 flag (CurrentWrite) is set
+                        current_write_allowed = (access_level_value & 0x2) > 0
+                        if current_write_allowed:
+                            self.attribute_cache[node_id] = attributes
+                            return True
+                        else:
+                            _logger.error("Node with ID {} has read access only.".format(node_id))
+                            return False
+                    else:
+                        raise TypeError
+                else:
+                    _logger.error("No attributes returned for node {}".format(node_id))
+                    return False
             except asyncio.exceptions.TimeoutError:
-                return True
-            except ua.uaerrors._auto.BadNodeIdUnknown:
+                pass
+            except (TypeError, ua.uaerrors._auto.BadNodeIdUnknown):
                 _logger.error("Node with ID {} does not exist.".format(node_id))
                 return False
             except Exception as ex:
                 _logger.error("Read attribute of Node with ID {} is failed. Error: {}".format(node_id, ex))
+                return False
+            finally:
+                if node_id in self.attribute_cache:
+                    return True
                 return False
 
     async def check_server_reachability(self) -> bool:
