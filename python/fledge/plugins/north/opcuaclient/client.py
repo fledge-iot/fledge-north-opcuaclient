@@ -7,6 +7,7 @@ from asyncua import Client, ua
 from asyncua.crypto.security_policies import SecurityPolicyBasic128Rsa15, SecurityPolicyBasic256, \
     SecurityPolicyBasic256Sha256, SecurityPolicyAes128Sha256RsaOaep
 from urllib.parse import urlparse
+from typing import Tuple
 
 from fledge.common.common import _FLEDGE_ROOT, _FLEDGE_DATA
 from fledge.common import logger
@@ -27,7 +28,9 @@ class ServerConnectionError(Exception):
 
 
 class NodeNotFoundOrAccessDeniedError(Exception):
-    pass
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
 
 
 class AsyncClient(object):
@@ -111,11 +114,17 @@ class AsyncClient(object):
                 else:
                     _logger.debug("{} asset code is missing in map configuration.".format(asset_code))
             if nodes and node_values:
-                if await self._write_values_to_nodes(nodes, node_values):
-                    num_sent += len(payloads)
-                    is_data_sent = True
+                if self.client is None:
+                    await self.connect()
+                if self.client:
+                    success, message = await self._write_values_to_nodes(nodes, node_values)
+                    if success:
+                        num_sent += len(payloads)
+                        is_data_sent = True
+                    else:
+                        raise NodeNotFoundOrAccessDeniedError(message)
                 else:
-                    raise NodeNotFoundOrAccessDeniedError
+                    raise Exception
         except asyncio.exceptions.TimeoutError:
             pass
         except ua.uaerrors.UaStatusCodeError as err:
@@ -212,18 +221,16 @@ class AsyncClient(object):
         if self.client is not None:
             self.event_loop.run_until_complete(self.disconnect())
 
-    async def check_node_exists(self, nodes: list) -> bool:
-        """Checks if a node exists in the server by attempting to read it.
+    async def validate_node_access(self, nodes: list) -> Tuple[bool, str]:
+        """Validates if a node exists and checks its read/write access level.
 
         Args:
-            nodes (list): The NodeId of the nodes to check (e.g., ['ns=3;i=1010']).
+            nodes (list): The NodeIds of the nodes to check (e.g., ['ns=3;i=1010']).
 
         Returns:
-            bool: True if the node exists, False otherwise.
-
-        Raises:
-            BadNodeIdUnknown: If the node does not exist in the server.
-            Exception: For unexpected errors such as network issues or timeouts.
+            Tuple[bool, str]: A tuple containing:
+                - True if the node exists and has write access, False otherwise.
+                - A message providing additional information about the result.
         """
         _logger.debug("attribute_cache: {}".format(self.attribute_cache))
         unique_node_ids = list(set(nodes))
@@ -242,27 +249,22 @@ class AsyncClient(object):
                         current_write_allowed = (access_level_value & 0x2) > 0
                         if current_write_allowed:
                             self.attribute_cache[node_id] = attributes
-                            return True
+                            return True, f"Node with ID {node_id} exists and has write access."
                         else:
-                            _logger.error("Node with ID {} has read access only.".format(node_id))
-                            return False
+                            return False, f"Node with ID {node_id} has read access only."
                     else:
                         raise TypeError
                 else:
-                    _logger.error("No attributes returned for node {}".format(node_id))
-                    return False
+                    return False, f"Node with ID {node_id} has no valid attributes returned."
             except asyncio.exceptions.TimeoutError:
                 pass
             except (TypeError, ua.uaerrors._auto.BadNodeIdUnknown):
-                _logger.error("Node with ID {} does not exist.".format(node_id))
-                return False
+                return False, f"Node with ID {node_id} does not exist."
             except Exception as ex:
-                _logger.error("Read attribute of Node with ID {} is failed. Error: {}".format(node_id, ex))
-                return False
+                return False, f"Read attribute of Node with ID {node_id} failed due to error: {ex}"
             finally:
                 if node_id in self.attribute_cache:
-                    return True
-                return False
+                    return True, f"Node with ID {node_id} exists and is cached."
 
     async def check_server_reachability(self) -> bool:
         """Check if the server is reachable
@@ -299,12 +301,11 @@ class AsyncClient(object):
             if reader:
                 reader.feed_eof()
 
-    async def _write_values_to_nodes(self, nodes, values):
+    async def _write_values_to_nodes(self, nodes, values) -> Tuple[bool, str]:
         """Write values to mulitple nodes in one call"""
-        if self.client is None:
-            await self.connect()
-        if self.client and not await self.check_node_exists(nodes):
-            return False
+        success, message = await self.validate_node_access(nodes)
+        if not success:
+            return False, message
         node_identifiers = self._convert_node_identifier(nodes)
         _logger.debug("Nodes: {}".format(node_identifiers))
         _logger.debug("Node Values to write: {}".format(values))
@@ -317,7 +318,7 @@ class AsyncClient(object):
         except Exception:
             # When there is an exception; mostly asyncio timeout error; we need to flush the callback map of UAClient
             self.client.uaclient.protocol._callbackmap.clear()
-        return True
+        return True, "Success"
 
     def _value_to_variant(self, value, type_):
         type_ = type_.strip().lower()
