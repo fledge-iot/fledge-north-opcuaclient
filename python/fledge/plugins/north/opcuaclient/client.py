@@ -7,6 +7,7 @@ from asyncua import Client, ua
 from asyncua.crypto.security_policies import SecurityPolicyBasic128Rsa15, SecurityPolicyBasic256, \
     SecurityPolicyBasic256Sha256, SecurityPolicyAes128Sha256RsaOaep
 from urllib.parse import urlparse
+from typing import List, Tuple
 
 from fledge.common.common import _FLEDGE_ROOT, _FLEDGE_DATA
 from fledge.common import logger
@@ -20,11 +21,24 @@ __license__ = "Apache 2.0"
 __version__ = "${VERSION}"
 
 
+class ServerConnectionError(Exception):
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+
+class NodeNotFoundOrAccessDeniedError(Exception):
+    def __init__(self, message):
+        self.message = message
+        super().__init__(self.message)
+
+
 class AsyncClient(object):
     """An async client to connect to an OPC-UA server"""
     __slots__ = ['client', 'event_loop', 'name', 'map', 'url', 'user_authentication_mode', 'username', 'password',
                  'security_mode', 'security_policy', 'certs_dir', 'server_certificate', 'client_certificate',
-                 'client_private_key', 'client_private_key_passphrase', 'last_error_time', 'error_interval']
+                 'client_private_key', 'client_private_key_passphrase', 'last_error_time', 'error_interval',
+                 'attribute_cache']
 
     def __init__(self, config):
         """
@@ -50,6 +64,7 @@ class AsyncClient(object):
         self.client_private_key_passphrase = config["client_private_key_passphrase"]["value"]
         self.last_error_time = 0
         self.error_interval = 5 * 60  # Set the interval to 5 minutes (300 seconds)
+        self.attribute_cache = {}
 
     def __repr__(self):
         template = 'Async OPCUA client info <name={opcua.name}, url={opcua.url}, map={opcua.map}, ' \
@@ -75,7 +90,7 @@ class AsyncClient(object):
             is_reachable = await self.check_server_reachability()
             if not is_reachable:
                 msg = "Server at {} is unreachable".format(self.url)
-                raise Exception(msg)
+                raise ServerConnectionError(msg)
 
             nodes = []
             node_values = []
@@ -99,23 +114,42 @@ class AsyncClient(object):
                 else:
                     _logger.debug("{} asset code is missing in map configuration.".format(asset_code))
             if nodes and node_values:
-                if await self._write_values_to_nodes(nodes, node_values):
-                    num_sent += len(payloads)
-                    is_data_sent = True
+                if self.client is None:
+                    await self.connect()
+                if self.client:
+                    success, message = await self._write_values_to_nodes(nodes, node_values)
+                    _logger.debug("{}-{}".format(success, message))
+                    if success:
+                        num_sent += len(payloads)
+                        is_data_sent = True
+                    else:
+                        raise NodeNotFoundOrAccessDeniedError(message)
                 else:
                     raise Exception
         except asyncio.exceptions.TimeoutError:
             pass
         except ua.uaerrors.UaStatusCodeError as err:
             _logger.error(err, "Data could not be sent as bad status code is encountered.")
+        except ServerConnectionError as err:
+            current_time = time.time()
+            # Suppress errors - if minutes have passed since the last error
+            if current_time - self.last_error_time >= self.error_interval:
+                _logger.error(err)
+                self.last_error_time = current_time
+            await self.disconnect()
+        except NodeNotFoundOrAccessDeniedError as err:
+            current_time = time.time()
+            # Suppress errors - if minutes have passed since the last error
+            if current_time - self.last_error_time >= self.error_interval:
+                _logger.error(err)
+                self.last_error_time = current_time
         except Exception as ex:
             current_time = time.time()
             # Suppress errors - if minutes have passed since the last error
             if current_time - self.last_error_time >= self.error_interval:
                 _logger.exception(ex, "Failed during write value to OPCUA node.")
                 self.last_error_time = current_time
-            if self.client:
-                await self.client.disconnect()
+            await self.disconnect()
             self.client = None
         return is_data_sent, last_object_id, num_sent
 
@@ -177,38 +211,81 @@ class AsyncClient(object):
         self.client = await self._create_client_connection()
         await self.client.connect()
 
-    def disconnect(self):
+    async def disconnect(self):
         """Close session, secure channel and socket"""
         if self.client is not None:
-            self.event_loop.run_until_complete(self.client.disconnect())
+            await self.client.disconnect()
+            self.client = None
 
-    async def check_node_exists(self, nodes: list) -> bool:
-        """Checks if a node exists in the server by attempting to read it.
+    def shutdown(self):
+        """Shutdown session"""
+        if self.client is not None:
+            self.event_loop.run_until_complete(self.disconnect())
+
+    async def validate_node_access(self, nodes: List[str]) -> Tuple[bool, str]:
+        """Validates if nodes exist and checks their read/write access level.
 
         Args:
-            nodes (list): The NodeId of the nodes to check (e.g., ['ns=3;i=1010']).
+            nodes (list): The NodeIds of the nodes to check (e.g., ['ns=3;i=1010']).
 
         Returns:
-            bool: True if the node exists, False otherwise.
-
-        Raises:
-            BadNodeIdUnknown: If the node does not exist in the server.
-            Exception: For unexpected errors such as network issues or timeouts.
+            Tuple[bool, str]: A tuple containing:
+                - True if all nodes exist and have write access, False if any node fails.
+                - A message providing additional information about the result.
         """
         unique_node_ids = list(set(nodes))
+        _logger.debug("len unique_node_ids: {} attribute_cache: {}".format(
+            len(unique_node_ids), len(self.attribute_cache)))
+        # Variable to track if all nodes are valid
+        all_valid = True
+        message = ""
         for node_id in unique_node_ids:
             try:
+                # Skip if node is already cached
+                if node_id in self.attribute_cache:
+                    continue
+
+                # Fetch node and read attributes
                 node = self.client.get_node(node_id)
-                await node.read_attribute(ua.AttributeIds.NodeId)
-                return True
+                attributes = await node.read_attributes([ua.AttributeIds.NodeId, ua.AttributeIds.AccessLevel])
+                if len(attributes) > 1:
+                    # Extract the AccessLevel value from the DataValue (it's wrapped in a Variant)
+                    access_level_variant = attributes[1].Value
+                    access_level_value = access_level_variant.Value
+                    if access_level_value is not None:
+                        # Check if write access is allowed (CurrentWrite flag is set)
+                        current_write_allowed = (access_level_value & 0x2) > 0
+                        if current_write_allowed:
+                            self.attribute_cache[node_id] = attributes
+                        else:
+                            all_valid = False
+                            message = f"Node with ID {node_id} has read access only."
+                            break
+                    else:
+                        all_valid = False
+                        message = f"Node with ID {node_id} has no valid read/write AccessLevel."
+                        break
+                else:
+                    all_valid = False
+                    message = f"Node with ID {node_id} has no valid attributes returned."
+                    break
             except asyncio.exceptions.TimeoutError:
-                return True
-            except ua.uaerrors._auto.BadNodeIdUnknown:
-                _logger.error("Node with ID {} does not exist.".format(node_id))
-                return False
+                # all_valid = False
+                # message = "Timeout error while reading attributes for node."
+                break
+            except (TypeError, ua.uaerrors._auto.BadNodeIdUnknown):
+                all_valid = False
+                message = f"Node with ID {node_id} does not exist."
+                break
             except Exception as ex:
-                _logger.error("Read attribute of Node with ID {} is failed. Error: {}".format(node_id, ex))
-                return False
+                all_valid = False
+                message = f"Read attribute of Node with ID {node_id} failed due to error: {ex}"
+                break
+        # Final return based on the status of all nodes
+        if all_valid:
+            return True, "All nodes exist and have write access."
+        else:
+            return False, message
 
     async def check_server_reachability(self) -> bool:
         """Check if the server is reachable
@@ -245,12 +322,11 @@ class AsyncClient(object):
             if reader:
                 reader.feed_eof()
 
-    async def _write_values_to_nodes(self, nodes, values):
+    async def _write_values_to_nodes(self, nodes, values) -> Tuple[bool, str]:
         """Write values to mulitple nodes in one call"""
-        if self.client is None:
-            await self.connect()
-        if self.client and not await self.check_node_exists(nodes):
-            return False
+        success, message = await self.validate_node_access(nodes)
+        if not success:
+            return False, message
         node_identifiers = self._convert_node_identifier(nodes)
         _logger.debug("Nodes: {}".format(node_identifiers))
         _logger.debug("Node Values to write: {}".format(values))
@@ -263,7 +339,7 @@ class AsyncClient(object):
         except Exception:
             # When there is an exception; mostly asyncio timeout error; we need to flush the callback map of UAClient
             self.client.uaclient.protocol._callbackmap.clear()
-        return True
+        return True, "Success"
 
     def _value_to_variant(self, value, type_):
         type_ = type_.strip().lower()

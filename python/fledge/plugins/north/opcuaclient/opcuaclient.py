@@ -210,7 +210,7 @@ def plugin_shutdown(handle):
         None
     """
     client = handle['client']
-    client.disconnect()
+    client.shutdown()
     handle['client'] = None
 
 
