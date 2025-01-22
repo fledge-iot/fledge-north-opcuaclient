@@ -7,7 +7,7 @@ from asyncua import Client, ua
 from asyncua.crypto.security_policies import SecurityPolicyBasic128Rsa15, SecurityPolicyBasic256, \
     SecurityPolicyBasic256Sha256, SecurityPolicyAes128Sha256RsaOaep
 from urllib.parse import urlparse
-from typing import Tuple
+from typing import List, Tuple
 
 from fledge.common.common import _FLEDGE_ROOT, _FLEDGE_DATA
 from fledge.common import logger
@@ -222,23 +222,30 @@ class AsyncClient(object):
         if self.client is not None:
             self.event_loop.run_until_complete(self.disconnect())
 
-    async def validate_node_access(self, nodes: list) -> Tuple[bool, str]:
-        """Validates if a node exists and checks its read/write access level.
+    async def validate_node_access(self, nodes: List[str]) -> Tuple[bool, str]:
+        """Validates if nodes exist and checks their read/write access level.
 
         Args:
             nodes (list): The NodeIds of the nodes to check (e.g., ['ns=3;i=1010']).
 
         Returns:
             Tuple[bool, str]: A tuple containing:
-                - True if the node exists and has write access, False otherwise.
+                - True if all nodes exist and have write access, False if any node fails.
                 - A message providing additional information about the result.
         """
-        _logger.debug("attribute_cache: {}".format(self.attribute_cache))
         unique_node_ids = list(set(nodes))
+        _logger.debug("len unique_node_ids: {} attribute_cache: {}".format(
+            len(unique_node_ids), len(self.attribute_cache)))
+        # Variable to track if all nodes are valid
+        all_valid = True
+        message = ""
         for node_id in unique_node_ids:
             try:
+                # Skip if node is already cached
                 if node_id in self.attribute_cache:
                     continue
+
+                # Fetch node and read attributes
                 node = self.client.get_node(node_id)
                 attributes = await node.read_attributes([ua.AttributeIds.NodeId, ua.AttributeIds.AccessLevel])
                 if len(attributes) > 1:
@@ -246,27 +253,39 @@ class AsyncClient(object):
                     access_level_variant = attributes[1].Value
                     access_level_value = access_level_variant.Value
                     if access_level_value is not None:
-                        # Determine the access rights based on the bitmask & if the 0x2 flag (CurrentWrite) is set
+                        # Check if write access is allowed (CurrentWrite flag is set)
                         current_write_allowed = (access_level_value & 0x2) > 0
                         if current_write_allowed:
                             self.attribute_cache[node_id] = attributes
-                            return True, f"Node with ID {node_id} exists and has write access."
                         else:
-                            return False, f"Node with ID {node_id} has read access only."
+                            all_valid = False
+                            message = f"Node with ID {node_id} has read access only."
+                            break
                     else:
-                        raise TypeError
+                        all_valid = False
+                        message = f"Node with ID {node_id} has no valid read/write AccessLevel."
+                        break
                 else:
-                    return False, f"Node with ID {node_id} has no valid attributes returned."
+                    all_valid = False
+                    message = f"Node with ID {node_id} has no valid attributes returned."
+                    break
             except asyncio.exceptions.TimeoutError:
-                if node_id not in self.attribute_cache:
-                    return False, f"Timeout error while reading the attribute for node with ID {node_id}."
+                # all_valid = False
+                # message = "Timeout error while reading attributes for node."
+                break
             except (TypeError, ua.uaerrors._auto.BadNodeIdUnknown):
-                return False, f"Node with ID {node_id} does not exist."
+                all_valid = False
+                message = f"Node with ID {node_id} does not exist."
+                break
             except Exception as ex:
-                return False, f"Read attribute of Node with ID {node_id} failed due to error: {ex}"
-            finally:
-                if node_id in self.attribute_cache:
-                    return True, f"Node with ID {node_id} exists and is cached."
+                all_valid = False
+                message = f"Read attribute of Node with ID {node_id} failed due to error: {ex}"
+                break
+        # Final return based on the status of all nodes
+        if all_valid:
+            return True, "All nodes exist and have write access."
+        else:
+            return False, message
 
     async def check_server_reachability(self) -> bool:
         """Check if the server is reachable
