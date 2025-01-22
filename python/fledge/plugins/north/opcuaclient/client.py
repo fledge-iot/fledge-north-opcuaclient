@@ -118,6 +118,7 @@ class AsyncClient(object):
                     await self.connect()
                 if self.client:
                     success, message = await self._write_values_to_nodes(nodes, node_values)
+                    _logger.debug("{}-{}".format(success, message))
                     if success:
                         num_sent += len(payloads)
                         is_data_sent = True
@@ -257,7 +258,8 @@ class AsyncClient(object):
                 else:
                     return False, f"Node with ID {node_id} has no valid attributes returned."
             except asyncio.exceptions.TimeoutError:
-                pass
+                if node_id not in self.attribute_cache:
+                    return False, f"Timeout error while reading the attribute for node with ID {node_id}."
             except (TypeError, ua.uaerrors._auto.BadNodeIdUnknown):
                 return False, f"Node with ID {node_id} does not exist."
             except Exception as ex:
