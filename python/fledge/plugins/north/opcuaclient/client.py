@@ -118,7 +118,6 @@ class AsyncClient(object):
                     await self.connect()
                 if self.client:
                     success, message = await self._write_values_to_nodes(nodes, node_values)
-                    _logger.debug("{}-{}".format(success, message))
                     if success:
                         num_sent += len(payloads)
                         is_data_sent = True
@@ -262,17 +261,15 @@ class AsyncClient(object):
                             message = f"Node with ID {node_id} has read access only."
                             break
                     else:
-                        all_valid = False
-                        message = f"Node with ID {node_id} has no valid read/write AccessLevel."
-                        break
+                        raise ua.uaerrors._auto.BadNodeIdUnknown
                 else:
                     all_valid = False
                     message = f"Node with ID {node_id} has no valid attributes returned."
                     break
             except asyncio.exceptions.TimeoutError:
-                # all_valid = False
-                # message = "Timeout error while reading attributes for node."
-                break
+                if node_id not in self.attribute_cache:
+                    all_valid = False
+                continue
             except (TypeError, ua.uaerrors._auto.BadNodeIdUnknown):
                 all_valid = False
                 message = f"Node with ID {node_id} does not exist."
