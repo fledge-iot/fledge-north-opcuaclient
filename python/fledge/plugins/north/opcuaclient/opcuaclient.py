@@ -162,7 +162,7 @@ def plugin_info():
     """
     return {
         'name': 'OPC UA Client',
-        'version': '3.0.0',
+        'version': '3.1.0',
         'type': 'north',
         'interface': '1.0',
         'config': _DEFAULT_CONFIG
